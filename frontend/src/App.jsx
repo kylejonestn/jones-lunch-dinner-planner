@@ -22,6 +22,9 @@ import {
   ChevronRight,
   Sparkles,
   ExternalLink,
+  Edit,
+  Eye,
+  EyeOff,
   MessageSquare
 } from 'lucide-react';
 import {
@@ -132,6 +135,15 @@ export default function App() {
     }
   });
 
+  // Dynamic instructions and full details cached by recipe ID (to avoid repeat fetches)
+  const [detailsCache, setDetailsCache] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('wf_details_cache')) || {};
+    } catch {
+      return {};
+    }
+  });
+
   // Selected date range (weeks start on Sunday)
   const [selectedSunday, setSelectedSunday] = useState(() => {
     const defaultSun = getSundayOfCurrentWeek();
@@ -162,6 +174,8 @@ export default function App() {
   const [shoppingChecked, setShoppingChecked] = useState({});
   const [showSearchModal, setShowSearchModal] = useState(null); // { day, slot } or null
   const [searchQuery, setSearchQuery] = useState('');
+  const [expandedRecipes, setExpandedRecipes] = useState({});
+  const [loadingDetails, setLoadingDetails] = useState({});
 
   // Save critical states locally
   useEffect(() => {
@@ -171,10 +185,11 @@ export default function App() {
     localStorage.setItem('wf_node_mappings', JSON.stringify(nodeMappings));
     localStorage.setItem('wf_recipes', JSON.stringify(recipes));
     localStorage.setItem('wf_ingredient_cache', JSON.stringify(ingredientCache));
+    localStorage.setItem('wf_details_cache', JSON.stringify(detailsCache));
     localStorage.setItem('wf_weekly_menu', JSON.stringify(weeklyMenu));
     localStorage.setItem('wf_locked_slots', JSON.stringify(lockedSlots));
     localStorage.setItem('wf_proxy_url', proxyUrl);
-  }, [apiKey, customFolderId, rootNodeId, nodeMappings, recipes, ingredientCache, weeklyMenu, lockedSlots, proxyUrl]);
+  }, [apiKey, customFolderId, rootNodeId, nodeMappings, recipes, ingredientCache, detailsCache, weeklyMenu, lockedSlots, proxyUrl]);
 
   // Current date formatted beautifully
   const currentWeekLabel = useMemo(() => {
@@ -453,6 +468,65 @@ export default function App() {
       console.warn(`Failed to dynamically pull ingredients for: ${recipe.name}`, e);
     }
     return [];
+  }
+
+  // Dynamic, on-demand loader for a recipe's full details (ingredients and directions) to preview inside selection cards
+  async function loadRecipeDetails(recipe) {
+    if (!recipe || !recipe.id || recipe.id.startsWith('seed-')) return;
+    if (detailsCache[recipe.id]) return;
+
+    setLoadingDetails(prev => ({ ...prev, [recipe.id]: true }));
+    try {
+      // 1. Fetch direct children of the recipe node
+      const response = await callWorkflowy('list-children', { item_id: recipe.id });
+      const nodes = response.items || response.children || [];
+      
+      let ingredients = [];
+      let instructions = [];
+
+      // Find Ingredients node
+      const ingredientsNode = nodes.find(node => {
+        const name = cleanText(node.name).toLowerCase();
+        return name === 'ingredients' || name.includes('grocery');
+      });
+      if (ingredientsNode) {
+        const res = await callWorkflowy('list-children', { item_id: ingredientsNode.id });
+        const list = res.items || res.children || [];
+        ingredients = list.map(item => cleanText(item.name)).filter(Boolean);
+      }
+
+      // Find Directions/Instructions node
+      const directionsNode = nodes.find(node => {
+        const name = cleanText(node.name).toLowerCase();
+        return name === 'directions' || name === 'instructions' || name === 'steps' || name.includes('recipe') || name.includes('method');
+      });
+      if (directionsNode) {
+        const res = await callWorkflowy('list-children', { item_id: directionsNode.id });
+        const list = res.items || res.children || [];
+        instructions = list.map(item => cleanText(item.name)).filter(Boolean);
+      }
+
+      // Sync ingredients cache too
+      if (ingredients.length > 0) {
+        setIngredientCache(prev => ({
+          ...prev,
+          [recipe.id]: ingredients
+        }));
+      }
+
+      setDetailsCache(prev => ({
+        ...prev,
+        [recipe.id]: {
+          ingredients,
+          instructions,
+          note: recipe.note || ''
+        }
+      }));
+    } catch (e) {
+      console.warn(`Failed to load recipe details for: ${recipe.name}`, e);
+    } finally {
+      setLoadingDetails(prev => ({ ...prev, [recipe.id]: false }));
+    }
   }
 
   // Pre-load ingredients for all selected recipes in the weekly menu in the background
@@ -1263,6 +1337,9 @@ export default function App() {
                       .map(([key]) => key.split('-')[0])
                   ));
 
+                  const isExpanded = expandedRecipes[item.id];
+                  const hasWorkflowyId = item.id && !item.id.startsWith('seed-');
+
                   return (
                     <div 
                       key={item.id} 
@@ -1273,22 +1350,149 @@ export default function App() {
                         borderRadius: 'var(--radius-md)',
                         cursor: 'pointer',
                         background: '#fafaf9',
-                        transition: 'all 0.1s ease'
+                        transition: 'all 0.1s ease',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px'
                       }}
                       onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--primary)'}
                       onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border)'}
                     >
-                      <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{item.name}</div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
-                        {item.group && (
-                          <span className="badge badge-yellow" style={{ fontSize: '0.65rem' }}>{item.group}</span>
-                        )}
-                        {activeDays.length > 0 && (
-                          <span className="badge badge-green" style={{ fontSize: '0.65rem' }}>
-                            📅 Chosen: {activeDays.join(', ')}
-                          </span>
+                      {/* Top Header Row (Name + Actions) */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, fontSize: '0.95rem', lineHeight: 1.3 }}>{item.name}</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+                            {item.group && (
+                              <span className="badge badge-yellow" style={{ fontSize: '0.65rem' }}>{item.group}</span>
+                            )}
+                            {activeDays.length > 0 && (
+                              <span className="badge badge-green" style={{ fontSize: '0.65rem' }}>
+                                📅 Chosen: {activeDays.join(', ')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        {hasWorkflowyId && (
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                            {/* Eyeball Preview Button */}
+                            <button
+                              title="Preview recipe details"
+                              onClick={() => {
+                                const newExpanded = !isExpanded;
+                                setExpandedRecipes(prev => ({ ...prev, [item.id]: newExpanded }));
+                                if (newExpanded) {
+                                  loadRecipeDetails(item);
+                                }
+                              }}
+                              style={{
+                                padding: '6px',
+                                borderRadius: 'var(--radius-sm)',
+                                background: isExpanded ? 'rgba(16, 185, 129, 0.1)' : 'transparent',
+                                color: isExpanded ? 'var(--primary-dark)' : 'var(--text-muted)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                              }}
+                            >
+                              {isExpanded ? <EyeOff size={16} /> : <Eye size={16} />}
+                            </button>
+
+                            {/* Edit in Workflowy Button */}
+                            <a
+                              href={`https://workflowy.com/#/${item.id}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              title="Edit in Workflowy"
+                              style={{
+                                padding: '6px',
+                                borderRadius: 'var(--radius-sm)',
+                                color: 'var(--text-muted)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'color 0.15s ease'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--secondary-dark)'}
+                              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
+                            >
+                              <Edit size={16} />
+                            </a>
+                          </div>
                         )}
                       </div>
+
+                      {/* Expanded Preview Panel */}
+                      {isExpanded && (
+                        <div style={{
+                          marginTop: '6px',
+                          padding: '12px',
+                          background: '#ffffff',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--border)',
+                          fontSize: '0.85rem',
+                          color: 'var(--text-main)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '10px'
+                        }} onClick={(e) => e.stopPropagation()}>
+                          {loadingDetails[item.id] ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                              <RefreshCw size={14} className="spin-icon" /> Pulling details from Workflowy...
+                            </div>
+                          ) : (
+                            <>
+                              {/* Description/Note */}
+                              {(item.note || (detailsCache[item.id] && detailsCache[item.id].note)) && (
+                                <div>
+                                  <div style={{ fontWeight: 700, color: 'var(--primary-dark)', marginBottom: '2px', fontSize: '0.8rem', textTransform: 'uppercase' }}>Description Note:</div>
+                                  <div style={{ fontStyle: 'italic', color: 'var(--text-muted)', lineHeight: 1.3 }}>
+                                    {item.note || detailsCache[item.id]?.note}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Ingredients */}
+                              {((detailsCache[item.id] && detailsCache[item.id].ingredients.length > 0) || (ingredientCache[item.id] && ingredientCache[item.id].length > 0)) ? (
+                                <div>
+                                  <div style={{ fontWeight: 700, color: 'var(--primary-dark)', marginBottom: '2px', fontSize: '0.8rem', textTransform: 'uppercase' }}>Ingredients:</div>
+                                  <ul style={{ paddingLeft: '16px', margin: 0, display: 'flex', flexDirection: 'column', gap: '2px', lineHeight: 1.3 }}>
+                                    {(detailsCache[item.id]?.ingredients || ingredientCache[item.id] || []).map((ing, idx) => (
+                                      <li key={idx}>{ing}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : (
+                                <div>
+                                  <div style={{ fontWeight: 700, color: 'var(--primary-dark)', marginBottom: '2px', fontSize: '0.8rem', textTransform: 'uppercase' }}>Ingredients:</div>
+                                  <div style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No ingredients found.</div>
+                                </div>
+                              )}
+
+                              {/* Directions */}
+                              {detailsCache[item.id] && detailsCache[item.id].instructions.length > 0 ? (
+                                <div>
+                                  <div style={{ fontWeight: 700, color: 'var(--primary-dark)', marginBottom: '2px', fontSize: '0.8rem', textTransform: 'uppercase' }}>Directions:</div>
+                                  <ol style={{ paddingLeft: '16px', margin: 0, display: 'flex', flexDirection: 'column', gap: '4px', lineHeight: 1.3 }}>
+                                    {detailsCache[item.id].instructions.map((step, idx) => (
+                                      <li key={idx}>{step}</li>
+                                    ))}
+                                  </ol>
+                                </div>
+                              ) : (
+                                detailsCache[item.id] && (
+                                  <div>
+                                    <div style={{ fontWeight: 700, color: 'var(--primary-dark)', marginBottom: '2px', fontSize: '0.8rem', textTransform: 'uppercase' }}>Directions:</div>
+                                    <div style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No directions found in sub-bullets.</div>
+                                  </div>
+                                )
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })
@@ -1307,7 +1511,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.0.9 • Built on May 30, 2026 at 9:55 AM CT
+        v1.1.0 • Built on May 30, 2026 at 10:00 AM CT
       </footer>
     </div>
   );
