@@ -71,13 +71,14 @@ function formatDate(date) {
   });
 }
 
-// Get the Sunday of the active week for a given date
-function getSundayOfCurrentWeek(d = new Date()) {
-  const day = d.getDay();
-  const diff = d.getDate() - day; // adjust when day is sunday
-  const sunday = new Date(d.setDate(diff));
-  sunday.setHours(0, 0, 0, 0);
-  return sunday;
+// Get the Friday of the active week (Friday to Thursday) for a given date
+function getFridayOfCurrentWeek(d = new Date()) {
+  const dateObj = new Date(d);
+  const day = dateObj.getDay();
+  const diff = (day >= 5) ? (day - 5) : (day + 2);
+  const friday = new Date(dateObj.setDate(dateObj.getDate() - diff));
+  friday.setHours(0, 0, 0, 0);
+  return friday;
 }
 
 // Strictly sequential API request queue to prevent Workflowy 429 Rate Limits
@@ -166,17 +167,17 @@ export default function App() {
     }
   });
 
-  // Selected date range (weeks start on Sunday)
-  const [selectedSunday, setSelectedSunday] = useState(() => {
-    const defaultSun = getSundayOfCurrentWeek();
+  // Selected date range (weeks start on Friday)
+  const [selectedFriday, setSelectedFriday] = useState(() => {
+    const defaultFri = getFridayOfCurrentWeek();
     
-    // If today is Thursday (4), Friday (5), or Saturday (6), auto-advance to next week on startup
+    // If today is Thursday (4), auto-advance to next week on startup
     const currentDay = new Date().getDay();
-    if (currentDay >= 4) {
-      defaultSun.setDate(defaultSun.getDate() + 7);
+    if (currentDay === 4) {
+      defaultFri.setDate(defaultFri.getDate() + 7);
     }
     
-    return defaultSun.toISOString().split('T')[0];
+    return defaultFri.toISOString().split('T')[0];
   });
 
   // Active weekly menu planner grid state
@@ -361,7 +362,7 @@ export default function App() {
         const hasWorkflowyId = meal.id && !meal.id.startsWith('seed-') && !meal.id.startsWith('rolled-') && !meal.id.startsWith('manual-');
         const wfLink = hasWorkflowyId ? `https://workflowy.com/#/${meal.id}` : '';
         
-        const uid = `dinner-${day}-${selectedSunday}-${startEventDate.getTime()}@freshkitchenplanner.com`;
+        const uid = `dinner-${day}-${selectedFriday}-${startEventDate.getTime()}@freshkitchenplanner.com`;
         
         let descParts = [
           `Scheduled Dinner: ${cleanMealName}`,
@@ -395,7 +396,7 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `dinners-week-of-${selectedSunday}.ics`;
+      link.download = `dinners-week-of-${selectedFriday}.ics`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -412,20 +413,20 @@ export default function App() {
     }
   };
 
-  const getSyncWindowSundays = () => {
+  const getSyncWindowFridays = () => {
     const today = new Date();
-    const currentSun = getSundayOfCurrentWeek(today);
+    const currentFri = getFridayOfCurrentWeek(today);
     
-    const lastSun = new Date(currentSun);
-    lastSun.setDate(lastSun.getDate() - 7);
+    const lastFri = new Date(currentFri);
+    lastFri.setDate(lastFri.getDate() - 7);
     
-    const nextSun = new Date(currentSun);
-    nextSun.setDate(nextSun.getDate() + 7);
+    const nextFri = new Date(currentFri);
+    nextFri.setDate(nextFri.getDate() + 7);
     
     return [
-      lastSun.toISOString().split('T')[0],
-      currentSun.toISOString().split('T')[0],
-      nextSun.toISOString().split('T')[0]
+      lastFri.toISOString().split('T')[0],
+      currentFri.toISOString().split('T')[0],
+      nextFri.toISOString().split('T')[0]
     ];
   };
 
@@ -560,15 +561,15 @@ export default function App() {
   useEffect(() => {
     if (!apiKey || !rootNodeId || isLoading) return;
     
-    const allowedWeeks = getSyncWindowSundays();
-    if (!allowedWeeks.includes(selectedSunday)) return;
+    const allowedWeeks = getSyncWindowFridays();
+    if (!allowedWeeks.includes(selectedFriday)) return;
     
     if (cloudSyncTimeoutRef.current) {
       clearTimeout(cloudSyncTimeoutRef.current);
     }
     
     cloudSyncTimeoutRef.current = setTimeout(() => {
-      saveWeekToCloud(selectedSunday, weeklyMenu, lockedSlots);
+      saveWeekToCloud(selectedFriday, weeklyMenu, lockedSlots);
     }, 3000);
     
     return () => {
@@ -576,14 +577,14 @@ export default function App() {
         clearTimeout(cloudSyncTimeoutRef.current);
       }
     };
-  }, [weeklyMenu, lockedSlots, selectedSunday, apiKey, rootNodeId]);
+  }, [weeklyMenu, lockedSlots, selectedFriday, apiKey, rootNodeId]);
 
   // Load from cloud when week changes
   useEffect(() => {
     if (apiKey && rootNodeId) {
-      loadWeekFromCloud(selectedSunday);
+      loadWeekFromCloud(selectedFriday);
     }
-  }, [selectedSunday, rootNodeId]);
+  }, [selectedFriday, rootNodeId]);
 
   const syncDinnersToGoogleCalendar = async () => {
     if (!googleAccessToken) {
@@ -669,14 +670,27 @@ export default function App() {
 
   // Current date formatted beautifully
   const currentWeekLabel = useMemo(() => {
-    const start = new Date(selectedSunday);
+    const start = new Date(selectedFriday);
     const end = new Date(start);
     end.setDate(end.getDate() + 6);
-    return `${formatDate(start)} – ${formatDate(end)}`;
-  }, [selectedSunday]);
+    
+    const formatCustomDate = (date) => {
+      const daysShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thur', 'Fri', 'Sat'];
+      const monthsFull = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      const dayName = daysShort[date.getDay()];
+      const monthName = monthsFull[date.getMonth()];
+      const dateNum = date.getDate();
+      return `${dayName} ${monthName} ${dateNum}`;
+    };
+    
+    return `${formatCustomDate(start)} - ${formatCustomDate(end)}`;
+  }, [selectedFriday]);
 
   // Days list & Slot Categories
-  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const days = ['Friday', 'Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'];
   const slots = [
     { id: 'breakfast-kyle', label: 'Breakfast: Kyle', color: 'badge-yellow' },
     { id: 'breakfast-ariel', label: 'Breakfast: Ariel', color: 'badge-yellow' },
@@ -692,7 +706,7 @@ export default function App() {
     let changed = false;
 
     // We fetch rotation baseline
-    const rotation = getRotationForDate(selectedSunday);
+    const rotation = getRotationForDate(selectedFriday);
 
     days.forEach(day => {
       // 1. Breakfast (Kyle)
@@ -793,7 +807,7 @@ export default function App() {
     if (changed) {
       setWeeklyMenu(newMenu);
     }
-  }, [selectedSunday]);
+  }, [selectedFriday]);
 
   // --- WORKFLOWY API CLIENT ENGINES ---
   async function callWorkflowy(action, body) {
@@ -1475,7 +1489,7 @@ export default function App() {
     setSyncMessage('Generating Weekly Plan outline in Workflowy...');
 
     try {
-      const weekLabel = `Week of ${selectedSunday}`;
+      const weekLabel = `Week of ${selectedFriday}`;
 
       // 1. Check if the week already exists in Menu for the Week, and delete it if so to avoid duplicates
       const menuChildrenRes = await callWorkflowy('list-children', { item_id: targetMenuId });
@@ -1593,15 +1607,15 @@ export default function App() {
   }
 
   const getDayDate = (dayName) => {
-    const start = new Date(selectedSunday);
+    const start = new Date(selectedFriday);
     let offset = 0;
-    if (dayName === 'Monday') offset = 1;
-    else if (dayName === 'Tuesday') offset = 2;
-    else if (dayName === 'Wednesday') offset = 3;
-    else if (dayName === 'Thursday') offset = 4;
-    else if (dayName === 'Friday') offset = 5;
-    else if (dayName === 'Saturday') offset = 6;
-    else if (dayName === 'Sunday') offset = 7; // Sunday at the end of the week
+    if (dayName === 'Friday') offset = 0;
+    else if (dayName === 'Saturday') offset = 1;
+    else if (dayName === 'Sunday') offset = 2;
+    else if (dayName === 'Monday') offset = 3;
+    else if (dayName === 'Tuesday') offset = 4;
+    else if (dayName === 'Wednesday') offset = 5;
+    else if (dayName === 'Thursday') offset = 6;
     
     start.setDate(start.getDate() + offset);
     return start;
@@ -1841,9 +1855,9 @@ export default function App() {
               className="btn btn-outline" 
               style={{ width: 'auto', minHeight: '36px', height: '36px', padding: '0 10px' }}
               onClick={() => {
-                const prev = new Date(selectedSunday);
+                const prev = new Date(selectedFriday);
                 prev.setDate(prev.getDate() - 7);
-                setSelectedSunday(prev.toISOString().split('T')[0]);
+                setSelectedFriday(prev.toISOString().split('T')[0]);
               }}
             >
               <ChevronLeft size={18} />
@@ -1856,9 +1870,9 @@ export default function App() {
               className="btn btn-outline" 
               style={{ width: 'auto', minHeight: '36px', height: '36px', padding: '0 10px' }}
               onClick={() => {
-                const next = new Date(selectedSunday);
+                const next = new Date(selectedFriday);
                 next.setDate(next.getDate() + 7);
-                setSelectedSunday(next.toISOString().split('T')[0]);
+                setSelectedFriday(next.toISOString().split('T')[0]);
               }}
             >
               <ChevronRight size={18} />
@@ -2124,7 +2138,7 @@ export default function App() {
                   Dinners for the Week 🍲
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.9rem' }}>
-                  {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].map(day => {
+                  {days.map(day => {
                     const dinnerName = cleanText(weeklyMenu[`${day}-dinner`]?.name);
                     const formattedLabel = formatDateLabel(day, 'dinner').replace(' Dinner', '');
                     return dinnerName && !dinnerName.includes('Choose') ? (
