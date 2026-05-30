@@ -1240,27 +1240,42 @@ export default function App() {
               {filteredSearchList.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)' }}>No recipes found</div>
               ) : (
-                filteredSearchList.map(item => (
-                  <div 
-                    key={item.id} 
-                    onClick={() => selectManualRecipe(item)}
-                    style={{
-                      padding: '12px 14px',
-                      border: '1px solid var(--border)',
-                      borderRadius: 'var(--radius-md)',
-                      cursor: 'pointer',
-                      background: '#fafaf9',
-                      transition: 'all 0.1s ease'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--primary)'}
-                    onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border)'}
-                  >
-                    <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{item.name}</div>
-                    {item.group && (
-                      <span className="badge badge-yellow" style={{ fontSize: '0.65rem', marginTop: '4px', display: 'inline-block' }}>{item.group}</span>
-                    )}
-                  </div>
-                ))
+                filteredSearchList.map(item => {
+                  const activeDays = Array.from(new Set(
+                    Object.entries(weeklyMenu)
+                      .filter(([key, val]) => val && val.name && val.name.trim().toLowerCase() === item.name.trim().toLowerCase())
+                      .map(([key]) => key.split('-')[0])
+                  ));
+
+                  return (
+                    <div 
+                      key={item.id} 
+                      onClick={() => selectManualRecipe(item)}
+                      style={{
+                        padding: '12px 14px',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-md)',
+                        cursor: 'pointer',
+                        background: '#fafaf9',
+                        transition: 'all 0.1s ease'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--primary)'}
+                      onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border)'}
+                    >
+                      <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{item.name}</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+                        {item.group && (
+                          <span className="badge badge-yellow" style={{ fontSize: '0.65rem' }}>{item.group}</span>
+                        )}
+                        {activeDays.length > 0 && (
+                          <span className="badge badge-green" style={{ fontSize: '0.65rem' }}>
+                            📅 Chosen: {activeDays.join(', ')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
@@ -1276,7 +1291,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.0.7 • Built on May 30, 2026 at 9:45 AM CT
+        v1.0.8 • Built on May 30, 2026 at 9:50 AM CT
       </footer>
     </div>
   );
