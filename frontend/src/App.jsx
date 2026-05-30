@@ -1214,7 +1214,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.0.3 • Built on May 30, 2026 at 9:25 AM CT
+        v1.0.4 • Built on May 30, 2026 at 9:30 AM CT
       </footer>
     </div>
   );
