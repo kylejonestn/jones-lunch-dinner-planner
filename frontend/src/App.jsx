@@ -70,6 +70,7 @@ export default function App() {
     return window.location.origin;
   });
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('wf_api_key') || '');
+  const [customFolderId, setCustomFolderId] = useState(() => localStorage.getItem('wf_custom_folder_id') || '');
   const [rootNodeId, setRootNodeId] = useState(() => localStorage.getItem('wf_root_node_id') || '');
   const [activeTab, setActiveTab] = useState('planner');
   const [isLoading, setIsLoading] = useState(false);
@@ -146,6 +147,7 @@ export default function App() {
   // Save critical states locally
   useEffect(() => {
     localStorage.setItem('wf_api_key', apiKey);
+    localStorage.setItem('wf_custom_folder_id', customFolderId);
     localStorage.setItem('wf_root_node_id', rootNodeId);
     localStorage.setItem('wf_node_mappings', JSON.stringify(nodeMappings));
     localStorage.setItem('wf_recipes', JSON.stringify(recipes));
@@ -153,7 +155,7 @@ export default function App() {
     localStorage.setItem('wf_weekly_menu', JSON.stringify(weeklyMenu));
     localStorage.setItem('wf_locked_slots', JSON.stringify(lockedSlots));
     localStorage.setItem('wf_proxy_url', proxyUrl);
-  }, [apiKey, rootNodeId, nodeMappings, recipes, ingredientCache, weeklyMenu, lockedSlots, proxyUrl]);
+  }, [apiKey, customFolderId, rootNodeId, nodeMappings, recipes, ingredientCache, weeklyMenu, lockedSlots, proxyUrl]);
 
   // Current date formatted beautifully
   const currentWeekLabel = useMemo(() => {
@@ -291,8 +293,16 @@ export default function App() {
         return null;
       }
 
-      // 1. Fetch root items and search deeply
-      let mealPlanningNode = await findNodeDeeply('None', 'Meal Planning', 0, 3);
+      // 1. Fetch root items and search deeply (or use customFolderId directly if provided)
+      let mealPlanningNode = null;
+      const cleanCustomId = customFolderId ? customFolderId.trim().replace(/^.*\/#\//, '') : '';
+
+      if (cleanCustomId) {
+        setSyncMessage('Directly accessing custom Folder ID...');
+        mealPlanningNode = { id: cleanCustomId, name: 'Meal Planning🍴' };
+      } else {
+        mealPlanningNode = await findNodeDeeply('None', 'Meal Planning', 0, 3);
+      }
 
       if (!mealPlanningNode) {
         setIsLoading(false);
@@ -301,7 +311,7 @@ export default function App() {
       }
 
       setRootNodeId(mealPlanningNode.id);
-      setSyncMessage('Found "Meal Planning"! Mapping outlines...');
+      setSyncMessage('Folder located! Mapping outlines...');
 
       // 2. Fetch Meal Planning children to find Menu, Recipes, Shopping List
       const mealPlanningChildrenRes = await callWorkflowy('list-children', { item_id: mealPlanningNode.id });
@@ -762,7 +772,7 @@ export default function App() {
             We pull your breakfasts, lunches, and dinners dynamically from your Workflowy database to build your weekly planner.
           </p>
 
-          <div className="input-group" style={{ textAlign: 'left', marginBottom: '24px' }}>
+          <div className="input-group" style={{ textAlign: 'left', marginBottom: '20px' }}>
             <label className="input-label">Workflowy API Key</label>
             <input
               type="password"
@@ -773,6 +783,20 @@ export default function App() {
             />
             <p style={{ fontSize: '0.75rem', marginTop: '4px' }}>
               Generate your token in settings: <a href="https://workflowy.com/api-key/" target="_blank" rel="noreferrer" style={{ color: 'var(--primary)', fontWeight: 600 }}>workflowy.com/api-key ➔</a>
+            </p>
+          </div>
+
+          <div className="input-group" style={{ textAlign: 'left', marginBottom: '24px' }}>
+            <label className="input-label">Workflowy Folder ID (Optional)</label>
+            <input
+              type="text"
+              placeholder="e.g. 1a51710e-87a0-c3de-5a2c-7af2651a82d0"
+              className="input-text"
+              value={customFolderId}
+              onChange={(e) => setCustomFolderId(e.target.value)}
+            />
+            <p style={{ fontSize: '0.75rem', marginTop: '4px', color: 'var(--text-muted)' }}>
+              If your <b>Meal Planning🍴</b> folder is deeply nested under sub-bullets, paste its bullet link or ID here to bypass searching.
             </p>
           </div>
 
@@ -1076,6 +1100,20 @@ export default function App() {
             </div>
 
             <div className="input-group">
+              <label className="input-label">Workflowy Folder ID (Optional)</label>
+              <input 
+                type="text" 
+                className="input-text" 
+                value={customFolderId} 
+                onChange={(e) => setCustomFolderId(e.target.value)} 
+                placeholder="e.g. 1a51710e-87a0-c3de-5a2c-7af2651a82d0"
+              />
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                If your folder is deeply nested and recursive sync fails, paste the URL or ID of your "Meal Planning🍴" bullet here!
+              </p>
+            </div>
+
+            <div className="input-group">
               <label className="input-label">Proxy Server URL</label>
               <input 
                 type="text" 
@@ -1214,7 +1252,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.0.4 • Built on May 30, 2026 at 9:30 AM CT
+        v1.0.5 • Built on May 30, 2026 at 9:35 AM CT
       </footer>
     </div>
   );
