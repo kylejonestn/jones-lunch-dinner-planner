@@ -81,6 +81,20 @@ function getFridayOfCurrentWeek(d = new Date()) {
   return friday;
 }
 
+// Parse YYYY-MM-DD local string to local Date object
+function parseLocalDate(dateStr) {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+// Format local Date object to YYYY-MM-DD local string
+function formatLocalDate(date) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 // Strictly sequential API request queue to prevent Workflowy 429 Rate Limits
 let requestQueue = Promise.resolve();
 
@@ -177,7 +191,7 @@ export default function App() {
       defaultFri.setDate(defaultFri.getDate() + 7);
     }
     
-    return defaultFri.toISOString().split('T')[0];
+    return formatLocalDate(defaultFri);
   });
 
   // Active weekly menu planner grid state
@@ -192,7 +206,7 @@ export default function App() {
       if (currentDay === 4) {
         defaultFri.setDate(defaultFri.getDate() + 7);
       }
-      const startupFri = defaultFri.toISOString().split('T')[0];
+      const startupFri = formatLocalDate(defaultFri);
       
       Object.entries(legacy).forEach(([k, v]) => {
         if (k.match(/^\d{4}-\d{2}-\d{2}-/)) {
@@ -218,7 +232,7 @@ export default function App() {
       if (currentDay === 4) {
         defaultFri.setDate(defaultFri.getDate() + 7);
       }
-      const startupFri = defaultFri.toISOString().split('T')[0];
+      const startupFri = formatLocalDate(defaultFri);
       
       Object.entries(legacy).forEach(([k, v]) => {
         if (k.match(/^\d{4}-\d{2}-\d{2}-/)) {
@@ -481,9 +495,9 @@ export default function App() {
     nextFri.setDate(nextFri.getDate() + 7);
     
     return [
-      lastFri.toISOString().split('T')[0],
-      currentFri.toISOString().split('T')[0],
-      nextFri.toISOString().split('T')[0]
+      formatLocalDate(lastFri),
+      formatLocalDate(currentFri),
+      formatLocalDate(nextFri)
     ];
   };
 
@@ -739,7 +753,7 @@ export default function App() {
 
   // Current date formatted beautifully
   const currentWeekLabel = useMemo(() => {
-    const start = new Date(selectedFriday);
+    const start = parseLocalDate(selectedFriday);
     const end = new Date(start);
     end.setDate(end.getDate() + 6);
     
@@ -1676,7 +1690,7 @@ export default function App() {
   }
 
   const getDayDate = (dayName) => {
-    const start = new Date(selectedFriday);
+    const start = parseLocalDate(selectedFriday);
     let offset = 0;
     if (dayName === 'Friday') offset = 0;
     else if (dayName === 'Saturday') offset = 1;
@@ -1924,9 +1938,9 @@ export default function App() {
               className="btn btn-outline" 
               style={{ width: 'auto', minHeight: '36px', height: '36px', padding: '0 10px' }}
               onClick={() => {
-                const prev = new Date(selectedFriday);
+                const prev = parseLocalDate(selectedFriday);
                 prev.setDate(prev.getDate() - 7);
-                setSelectedFriday(prev.toISOString().split('T')[0]);
+                setSelectedFriday(formatLocalDate(prev));
               }}
             >
               <ChevronLeft size={18} />
@@ -1939,9 +1953,9 @@ export default function App() {
               className="btn btn-outline" 
               style={{ width: 'auto', minHeight: '36px', height: '36px', padding: '0 10px' }}
               onClick={() => {
-                const next = new Date(selectedFriday);
+                const next = parseLocalDate(selectedFriday);
                 next.setDate(next.getDate() + 7);
-                setSelectedFriday(next.toISOString().split('T')[0]);
+                setSelectedFriday(formatLocalDate(next));
               }}
             >
               <ChevronRight size={18} />
