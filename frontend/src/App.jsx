@@ -238,12 +238,18 @@ export default function App() {
 
   // --- WORKFLOWY API CLIENT ENGINES ---
   async function callWorkflowy(action, body) {
+    // Normalise key: auto-append 'wfpak_' prefix if missing
+    let token = apiKey.trim();
+    if (token && !token.startsWith('wfpak_')) {
+      token = `wfpak_${token}`;
+    }
+
     try {
       const response = await fetch(`${proxyUrl}/api/workflowy/${action}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(body)
       });
