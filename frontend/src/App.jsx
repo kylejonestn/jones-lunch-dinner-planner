@@ -58,6 +58,17 @@ function getSundayOfCurrentWeek(d = new Date()) {
 
 export default function App() {
   // --- STATE ---
+  const [proxyUrl, setProxyUrl] = useState(() => {
+    const saved = localStorage.getItem('wf_proxy_url');
+    if (saved) return saved;
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return 'http://localhost:3001';
+    }
+    if (window.location.hostname.includes('github.io')) {
+      return 'http://localhost:3001';
+    }
+    return window.location.origin;
+  });
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('wf_api_key') || '');
   const [rootNodeId, setRootNodeId] = useState(() => localStorage.getItem('wf_root_node_id') || '');
   const [activeTab, setActiveTab] = useState('planner');
@@ -141,7 +152,8 @@ export default function App() {
     localStorage.setItem('wf_ingredient_cache', JSON.stringify(ingredientCache));
     localStorage.setItem('wf_weekly_menu', JSON.stringify(weeklyMenu));
     localStorage.setItem('wf_locked_slots', JSON.stringify(lockedSlots));
-  }, [apiKey, rootNodeId, nodeMappings, recipes, ingredientCache, weeklyMenu, lockedSlots]);
+    localStorage.setItem('wf_proxy_url', proxyUrl);
+  }, [apiKey, rootNodeId, nodeMappings, recipes, ingredientCache, weeklyMenu, lockedSlots, proxyUrl]);
 
   // Current date formatted beautifully
   const currentWeekLabel = useMemo(() => {
@@ -227,7 +239,7 @@ export default function App() {
   // --- WORKFLOWY API CLIENT ENGINES ---
   async function callWorkflowy(action, body) {
     try {
-      const response = await fetch(`http://localhost:3001/api/workflowy/${action}`, {
+      const response = await fetch(`${proxyUrl}/api/workflowy/${action}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1042,6 +1054,20 @@ export default function App() {
                 value={apiKey} 
                 onChange={(e) => setApiKey(e.target.value)} 
               />
+            </div>
+
+            <div className="input-group">
+              <label className="input-label">Proxy Server URL</label>
+              <input 
+                type="text" 
+                className="input-text" 
+                value={proxyUrl} 
+                onChange={(e) => setProxyUrl(e.target.value)} 
+                placeholder="http://localhost:3001"
+              />
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Set to <code>http://localhost:3001</code> for your local terminal, or enter your Render/Railway backend URL for 100% cloud access!
+              </p>
             </div>
 
             <div style={{ padding: '14px', background: '#fafaf9', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', fontSize: '0.85rem' }}>
