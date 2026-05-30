@@ -32,10 +32,26 @@ import {
   getWeeksSinceBase
 } from './seedData';
 
-// Utility to strip HTML tags from Workflowy text values
+// Utility to strip HTML tags and decode HTML entities from Workflowy text values
 function cleanText(text) {
   if (!text) return '';
-  return text.replace(/<[^>]*>/g, '').trim();
+  let cleaned = text.replace(/<[^>]*>/g, '');
+  
+  // Decode standard HTML entities
+  const entities = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#39;': "'",
+    '&apos;': "'"
+  };
+  
+  Object.entries(entities).forEach(([entity, replacement]) => {
+    cleaned = cleaned.replaceAll(entity, replacement);
+  });
+  
+  return cleaned.trim();
 }
 
 // Format date nicely (e.g., "May 30, 2026")
@@ -1291,7 +1307,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.0.8 • Built on May 30, 2026 at 9:50 AM CT
+        v1.0.9 • Built on May 30, 2026 at 9:55 AM CT
       </footer>
     </div>
   );
