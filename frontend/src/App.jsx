@@ -238,11 +238,7 @@ export default function App() {
 
   // --- WORKFLOWY API CLIENT ENGINES ---
   async function callWorkflowy(action, body) {
-    // Normalise key: auto-append 'wfpak_' prefix if missing
-    let token = apiKey.trim();
-    if (token && !token.startsWith('wfpak_')) {
-      token = `wfpak_${token}`;
-    }
+    const token = apiKey.trim();
 
     try {
       const cleanProxyUrl = proxyUrl.trim().replace(/\/+$/, '');
@@ -1202,7 +1198,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.0.1 • Built on May 29, 2026 at 10:14 PM CT
+        v1.0.2 • Built on May 30, 2026 at 9:20 AM CT
       </footer>
     </div>
   );
