@@ -451,8 +451,21 @@ export default function App() {
   // Consolidated and Deduplicated Grocery List
   const consolidatedGroceries = useMemo(() => {
     const list = [];
-    Object.entries(weeklyMenu).forEach(([slotKey, recipe]) => {
-      if (!recipe || !recipe.id) return;
+    // Deduplicate the weekly menu by recipe name to avoid processing the same meal multiple times
+    const uniqueRecipes = [];
+    const seenNames = new Set();
+    
+    Object.values(weeklyMenu).forEach(recipe => {
+      if (!recipe || !recipe.name || recipe.name.includes('Choose')) return;
+      const cleanName = recipe.name.trim().toLowerCase();
+      if (!seenNames.has(cleanName)) {
+        seenNames.add(cleanName);
+        uniqueRecipes.push(recipe);
+      }
+    });
+
+    uniqueRecipes.forEach(recipe => {
+      if (!recipe.id) return;
 
       if (recipe.id.startsWith('seed-')) {
         // Fallback: If it's a seed meal, we search if we have a Workflowy equivalent matching by name
@@ -1263,7 +1276,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.0.6 • Built on May 30, 2026 at 9:40 AM CT
+        v1.0.7 • Built on May 30, 2026 at 9:45 AM CT
       </footer>
     </div>
   );
