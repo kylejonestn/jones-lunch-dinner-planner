@@ -819,7 +819,7 @@ export default function App() {
         const meal = weeklyMenu[`${day}-${slot.id}`];
         if (meal && meal.name && !meal.name.includes('Choose')) {
           const emoji = slot.id === 'breakfast' ? '🥞' : slot.id === 'lunch' ? '🥗' : slot.id === 'snack' ? '🥨' : '🍲';
-          text += `  ${emoji} *${slot.label}:* ${meal.name}\n`;
+          text += `  ${emoji} *${slot.label}:* ${cleanText(meal.name)}\n`;
         }
       });
       text += `\n`;
@@ -1018,7 +1018,7 @@ export default function App() {
                       <div className="slot-info" onClick={() => openSelector(day, slot.id)}>
                         <div className="slot-label">{slot.label}</div>
                         <div className={`slot-value ${isRolling ? 'rolling' : ''}`}>
-                          {recipe.name}
+                          {cleanText(recipe.name)}
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: '6px' }}>
@@ -1113,7 +1113,7 @@ export default function App() {
                       {isChecked ? <CheckSquare size={20} color="var(--primary)" /> : <Square size={20} color="var(--text-muted)" />}
                       <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{groc.name}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>For: {groc.sources}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>For: {cleanText(groc.sources)}</div>
                       </div>
                     </div>
                   );
@@ -1160,9 +1160,9 @@ export default function App() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {days.map(day => {
-                const bMeal = weeklyMenu[`${day}-breakfast`]?.name || '---';
-                const lMeal = weeklyMenu[`${day}-lunch`]?.name || '---';
-                const dMeal = weeklyMenu[`${day}-dinner`]?.name || '---';
+                const bMeal = cleanText(weeklyMenu[`${day}-breakfast`]?.name || '---');
+                const lMeal = cleanText(weeklyMenu[`${day}-lunch`]?.name || '---');
+                const dMeal = cleanText(weeklyMenu[`${day}-dinner`]?.name || '---');
 
                 return (
                   <div key={day} style={{
@@ -1361,7 +1361,7 @@ export default function App() {
                       {/* Top Header Row (Name + Actions) */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 600, fontSize: '0.95rem', lineHeight: 1.3 }}>{item.name}</div>
+                          <div style={{ fontWeight: 600, fontSize: '0.95rem', lineHeight: 1.3 }}>{cleanText(item.name)}</div>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
                             {item.group && (
                               <span className="badge badge-yellow" style={{ fontSize: '0.65rem' }}>{item.group}</span>
@@ -1511,7 +1511,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.1.0 • Built on May 30, 2026 at 10:00 AM CT
+        v1.1.1 • Built on May 30, 2026 at 10:20 AM CT
       </footer>
     </div>
   );
