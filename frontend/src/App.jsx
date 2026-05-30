@@ -625,38 +625,7 @@ export default function App() {
     return () => { active = false; };
   }, [activeTab, nodeMappings.groceryId]);
 
-  // Combined grocery list merging planner ingredients and active Workflowy bullets
-  const mergedGroceries = useMemo(() => {
-    const finalMap = {};
 
-    // 1. Process all planner-generated ingredients
-    consolidatedGroceries.forEach(groc => {
-      const cleanKey = groc.name.trim().toLowerCase();
-      finalMap[cleanKey] = {
-        name: groc.name,
-        sources: groc.sources,
-        id: null
-      };
-    });
-
-    // 2. Merge with items currently active in Workflowy
-    workflowyGroceries.forEach(wfGroc => {
-      const cleanKey = wfGroc.name.trim().toLowerCase();
-      if (finalMap[cleanKey]) {
-        // Planner ingredient that already exists in Workflowy: map the ID!
-        finalMap[cleanKey].id = wfGroc.id;
-      } else {
-        // Custom manual item in Workflowy: add it!
-        finalMap[cleanKey] = {
-          name: wfGroc.name,
-          sources: 'Workflowy List 🛒',
-          id: wfGroc.id
-        };
-      }
-    });
-
-    return Object.values(finalMap).sort((a, b) => a.name.localeCompare(b.name));
-  }, [consolidatedGroceries, workflowyGroceries]);
 
   // Pre-load ingredients for all selected recipes in the weekly menu in the background
   useEffect(() => {
@@ -722,6 +691,39 @@ export default function App() {
       sources: Array.from(g.sources).join(', ')
     })).sort((a, b) => a.name.localeCompare(b.name));
   }, [weeklyMenu, ingredientCache, recipes]);
+
+  // Combined grocery list merging planner ingredients and active Workflowy bullets
+  const mergedGroceries = useMemo(() => {
+    const finalMap = {};
+
+    // 1. Process all planner-generated ingredients
+    consolidatedGroceries.forEach(groc => {
+      const cleanKey = groc.name.trim().toLowerCase();
+      finalMap[cleanKey] = {
+        name: groc.name,
+        sources: groc.sources,
+        id: null
+      };
+    });
+
+    // 2. Merge with items currently active in Workflowy
+    workflowyGroceries.forEach(wfGroc => {
+      const cleanKey = wfGroc.name.trim().toLowerCase();
+      if (finalMap[cleanKey]) {
+        // Planner ingredient that already exists in Workflowy: map the ID!
+        finalMap[cleanKey].id = wfGroc.id;
+      } else {
+        // Custom manual item in Workflowy: add it!
+        finalMap[cleanKey] = {
+          name: wfGroc.name,
+          sources: 'Workflowy List 🛒',
+          id: wfGroc.id
+        };
+      }
+    });
+
+    return Object.values(finalMap).sort((a, b) => a.name.localeCompare(b.name));
+  }, [consolidatedGroceries, workflowyGroceries]);
 
   // --- GAMIFIED LOTTERY ENGINE ---
   function rollSlot(day, slot) {
@@ -1640,7 +1642,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.2.0 • Built on May 30, 2026 at 10:30 AM CT
+        v1.2.1 • Built on May 30, 2026 at 10:35 AM CT
       </footer>
     </div>
   );
