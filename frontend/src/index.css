@@ -347,3 +347,17 @@ button {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
+
+/* Spin ease out for roll all button */
+@keyframes spin-ease-out {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.roll-all-spin {
+  animation: spin-ease-out 1s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+}

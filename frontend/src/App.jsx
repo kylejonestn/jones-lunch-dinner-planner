@@ -193,6 +193,8 @@ export default function App() {
 
   // Interactive UI state
   const [rollingSlots, setRollingSlots] = useState({});
+  const [isRollingAll, setIsRollingAll] = useState(false);
+  const [cloudSyncState, setCloudSyncState] = useState('idle'); // 'idle' | 'saving' | 'saved' | 'error'
   const [shoppingChecked, setShoppingChecked] = useState({});
   const [showSearchModal, setShowSearchModal] = useState(null); // { day, slot } or null
   const [searchQuery, setSearchQuery] = useState('');
@@ -403,6 +405,179 @@ export default function App() {
     }
   };
 
+  const getSyncWindowSundays = () => {
+    const today = new Date();
+    const currentSun = getSundayOfCurrentWeek(today);
+    
+    const lastSun = new Date(currentSun);
+    lastSun.setDate(lastSun.getDate() - 7);
+    
+    const nextSun = new Date(currentSun);
+    nextSun.setDate(nextSun.getDate() + 7);
+    
+    return [
+      lastSun.toISOString().split('T')[0],
+      currentSun.toISOString().split('T')[0],
+      nextSun.toISOString().split('T')[0]
+    ];
+  };
+
+  const getOrCreateSyncFolder = async (rootId) => {
+    if (nodeMappings.syncFolderId) {
+      return nodeMappings.syncFolderId;
+    }
+    
+    const res = await callWorkflowy('list-children', { item_id: rootId });
+    const children = res.items || res.children || [];
+    const match = children.find(node => cleanText(node.name).includes('Shared Sync Data 🔄'));
+    if (match) {
+      setNodeMappings(prev => {
+        const updated = { ...prev, syncFolderId: match.id };
+        localStorage.setItem('wf_node_mappings', JSON.stringify(updated));
+        return updated;
+      });
+      return match.id;
+    }
+    
+    const newFolder = await callWorkflowy('create-item', {
+      parent_id: rootId,
+      name: 'Shared Sync Data 🔄',
+      position: 'bottom'
+    });
+    const newId = newFolder.id || newFolder.item?.id;
+    setNodeMappings(prev => {
+      const updated = { ...prev, syncFolderId: newId };
+      localStorage.setItem('wf_node_mappings', JSON.stringify(updated));
+      return updated;
+    });
+    return newId;
+  };
+
+  const saveWeekToCloud = async (sundayDate, menu, locked) => {
+    if (!apiKey || !rootNodeId) return;
+    
+    const allowedWeeks = getSyncWindowSundays();
+    if (!allowedWeeks.includes(sundayDate)) {
+      return; 
+    }
+    
+    setCloudSyncState('saving');
+    
+    try {
+      const syncFolderId = await getOrCreateSyncFolder(rootNodeId);
+      const res = await callWorkflowy('list-children', { item_id: syncFolderId });
+      const children = res.items || res.children || [];
+      const bulletName = `Sync Week of ${sundayDate}`;
+      
+      const match = children.find(node => cleanText(node.name) === bulletName);
+      const payload = JSON.stringify({
+        weeklyMenu: menu,
+        lockedSlots: locked,
+        updatedAt: new Date().toISOString()
+      });
+      
+      if (match) {
+        await callWorkflowy('edit-item', {
+          item_id: match.id,
+          note: payload
+        });
+      } else {
+        const newBullet = await callWorkflowy('create-item', {
+          parent_id: syncFolderId,
+          name: bulletName,
+          position: 'bottom'
+        });
+        const newId = newBullet.id || newBullet.item?.id;
+        await callWorkflowy('edit-item', {
+          item_id: newId,
+          note: payload
+        });
+      }
+      setCloudSyncState('saved');
+      setTimeout(() => setCloudSyncState('idle'), 2000);
+    } catch (err) {
+      console.error("Cloud sync save failed:", err);
+      setCloudSyncState('error');
+      setTimeout(() => setCloudSyncState('idle'), 4000);
+    }
+  };
+
+  const loadWeekFromCloud = async (sundayDate) => {
+    if (!apiKey || !rootNodeId) return;
+    
+    const allowedWeeks = getSyncWindowSundays();
+    if (!allowedWeeks.includes(sundayDate)) {
+      return; 
+    }
+    
+    setCloudSyncState('saving');
+    
+    try {
+      const syncFolderId = await getOrCreateSyncFolder(rootNodeId);
+      const res = await callWorkflowy('list-children', { item_id: syncFolderId });
+      const children = res.items || res.children || [];
+      const bulletName = `Sync Week of ${sundayDate}`;
+      
+      const match = children.find(node => cleanText(node.name) === bulletName);
+      if (match && match.note) {
+        const data = JSON.parse(match.note);
+        if (data && data.weeklyMenu) {
+          setWeeklyMenu(prev => {
+            const prevNames = Object.entries(prev).map(([k, v]) => `${k}:${v?.name}`).join(',');
+            const newNames = Object.entries(data.weeklyMenu).map(([k, v]) => `${k}:${v?.name}`).join(',');
+            if (prevNames === newNames) return prev;
+            return { ...prev, ...data.weeklyMenu };
+          });
+          
+          if (data.lockedSlots) {
+            setLockedSlots(prev => {
+              const prevLock = Object.entries(prev).map(([k, v]) => `${k}:${v}`).join(',');
+              const newLock = Object.entries(data.lockedSlots).map(([k, v]) => `${k}:${v}`).join(',');
+              if (prevLock === newLock) return prev;
+              return { ...prev, ...data.lockedSlots };
+            });
+          }
+        }
+      }
+      setCloudSyncState('saved');
+      setTimeout(() => setCloudSyncState('idle'), 1500);
+    } catch (err) {
+      console.error("Cloud sync load failed:", err);
+      setCloudSyncState('error');
+      setTimeout(() => setCloudSyncState('idle'), 3000);
+    }
+  };
+
+  // Cloud Sync debouncing hook
+  const cloudSyncTimeoutRef = useRef(null);
+  useEffect(() => {
+    if (!apiKey || !rootNodeId || isLoading) return;
+    
+    const allowedWeeks = getSyncWindowSundays();
+    if (!allowedWeeks.includes(selectedSunday)) return;
+    
+    if (cloudSyncTimeoutRef.current) {
+      clearTimeout(cloudSyncTimeoutRef.current);
+    }
+    
+    cloudSyncTimeoutRef.current = setTimeout(() => {
+      saveWeekToCloud(selectedSunday, weeklyMenu, lockedSlots);
+    }, 3000);
+    
+    return () => {
+      if (cloudSyncTimeoutRef.current) {
+        clearTimeout(cloudSyncTimeoutRef.current);
+      }
+    };
+  }, [weeklyMenu, lockedSlots, selectedSunday, apiKey, rootNodeId]);
+
+  // Load from cloud when week changes
+  useEffect(() => {
+    if (apiKey && rootNodeId) {
+      loadWeekFromCloud(selectedSunday);
+    }
+  }, [selectedSunday, rootNodeId]);
+
   const syncDinnersToGoogleCalendar = async () => {
     if (!googleAccessToken) {
       alert('Please connect to Google Calendar first inside the Config tab!');
@@ -516,12 +691,21 @@ export default function App() {
       // 1. Breakfast (Kyle)
       const bKyleKey = `${day}-breakfast-kyle`;
       if (!newMenu[bKyleKey]) {
-        newMenu[bKyleKey] = {
-          id: `seed-b-kyle-${rotation.breakfast.id}`,
-          name: rotation.breakfast.name,
-          source: 'spreadsheet',
-          category: 'breakfasts'
-        };
+        if (day === 'Saturday') {
+          newMenu[bKyleKey] = {
+            id: 'manual-small-group',
+            name: 'Small Group',
+            source: 'default',
+            category: 'breakfasts'
+          };
+        } else {
+          newMenu[bKyleKey] = {
+            id: `seed-b-kyle-${rotation.breakfast.id}`,
+            name: rotation.breakfast.name,
+            source: 'spreadsheet',
+            category: 'breakfasts'
+          };
+        }
         changed = true;
       }
 
@@ -611,8 +795,8 @@ export default function App() {
     return new Promise((resolve, reject) => {
       requestQueue = requestQueue
         .then(async () => {
-          // Enforce 200ms spacing between any consecutive requests
-          await new Promise(r => setTimeout(r, 200));
+          // Enforce 350ms spacing between any consecutive requests
+          await new Promise(r => setTimeout(r, 350));
           const cleanProxyUrl = proxyUrl.trim().replace(/\/+$/, '');
           const response = await fetch(`${cleanProxyUrl}/api/workflowy/${action}`, {
             method: 'POST',
@@ -1098,7 +1282,9 @@ export default function App() {
         return;
       }
 
-      const randomRecipe = pool[Math.floor(Math.random() * pool.length)];
+      const randomRecipe = (day === 'Saturday' && slot === 'breakfast-kyle')
+        ? { id: 'manual-small-group', name: 'Small Group' }
+        : pool[Math.floor(Math.random() * pool.length)];
       const mealObj = {
         id: randomRecipe.id || `rolled-${slot}-${Date.now()}`,
         name: randomRecipe.name,
@@ -1125,6 +1311,9 @@ export default function App() {
 
   // Roll all slots that are not locked
   function rollAllUnlocked() {
+    setIsRollingAll(true);
+    setTimeout(() => setIsRollingAll(false), 1000);
+
     // 1. Roll Weekday slots (Mon - Fri) unified
     if (!lockedSlots['Weekday-breakfast-kyle']) rollSlot('Weekday', 'breakfast-kyle');
     if (!lockedSlots['Weekday-breakfast-ariel']) rollSlot('Weekday', 'breakfast-ariel');
@@ -1220,6 +1409,11 @@ export default function App() {
       return updated;
     });
 
+    setLockedSlots(prev => {
+      const key = `${day}-${slot}`;
+      return { ...prev, [key]: true };
+    });
+
     setShowSearchModal(null);
   }
 
@@ -1227,16 +1421,42 @@ export default function App() {
   async function writeBackToWorkflowy() {
     // Resolve dynamically from weeklyPlanFolder if provided
     let targetMenuId = null;
-    if (weeklyPlanFolder) {
+    if (weeklyPlanFolder && rootNodeId) {
       const cleanPlanId = weeklyPlanFolder.trim().replace(/^.*\/#\//, '');
       const isId = /^[0-9a-fA-F-]{12,36}$/.test(cleanPlanId);
       if (isId) {
         targetMenuId = cleanPlanId;
+      } else {
+        // Resolve by name under the root meal planning folder
+        try {
+          const res = await callWorkflowy('list-children', { item_id: rootNodeId });
+          const children = res.items || res.children || [];
+          const match = children.find(node => cleanText(node.name).toLowerCase().includes(weeklyPlanFolder.toLowerCase().trim()));
+          if (match) {
+            targetMenuId = match.id;
+          }
+        } catch (e) {
+          console.error("Failed to dynamically resolve weeklyPlanFolder:", e);
+        }
       }
     }
     
     if (!targetMenuId) {
       targetMenuId = nodeMappings.menuId;
+    }
+
+    if (!targetMenuId && rootNodeId) {
+      // Fallback search
+      try {
+        const res = await callWorkflowy('list-children', { item_id: rootNodeId });
+        const children = res.items || res.children || [];
+        const match = children.find(node => cleanText(node.name).toLowerCase().includes('menu'));
+        if (match) {
+          targetMenuId = match.id;
+        }
+      } catch (e) {
+        console.error("Failed fallback menu search:", e);
+      }
     }
 
     if (!rootNodeId || !targetMenuId || !nodeMappings.groceryId) {
@@ -1351,7 +1571,7 @@ export default function App() {
       slots.forEach(slot => {
         const meal = weeklyMenu[`${day}-${slot.id}`];
         if (meal && meal.name && !meal.name.includes('Choose')) {
-          const emoji = slot.id === 'breakfast' ? '🥞' : slot.id === 'lunch' ? '🥗' : slot.id === 'snack' ? '🥨' : '🍲';
+          const emoji = slot.id.startsWith('breakfast') ? '🥞' : slot.id === 'lunch' ? '🥗' : slot.id === 'snack' ? '🥨' : '🍲';
           text += `  ${emoji} *${slot.label}:* ${cleanText(meal.name)}\n`;
         }
       });
@@ -1457,15 +1677,38 @@ export default function App() {
           </div>
         </div>
         {apiKey && (
-          <button 
-            onClick={syncFromWorkflowy} 
-            className="btn btn-outline" 
-            style={{ minHeight: '36px', height: '36px', padding: '0 12px', width: 'auto', fontSize: '0.85rem' }}
-            disabled={isLoading}
-          >
-            <RefreshCw size={14} className={isLoading ? 'spin-icon' : ''} />
-            Sync
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {cloudSyncState === 'saving' && (
+              <span className="badge badge-yellow" style={{ fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '4px', textTransform: 'none' }}>
+                <RefreshCw size={10} className="spin-icon" /> Syncing...
+              </span>
+            )}
+            {cloudSyncState === 'saved' && (
+              <span className="badge badge-green" style={{ fontSize: '0.7rem', textTransform: 'none' }}>
+                Cloud Saved ☁️
+              </span>
+            )}
+            {cloudSyncState === 'error' && (
+              <span className="badge" style={{ fontSize: '0.7rem', background: '#fee2e2', color: '#991b1b', textTransform: 'none' }}>
+                Sync Error ⚠️
+              </span>
+            )}
+            {cloudSyncState === 'idle' && rootNodeId && (
+              <span className="badge badge-green" style={{ fontSize: '0.7rem', opacity: 0.6, background: '#f3f4f6', color: '#4b5563', textTransform: 'none' }}>
+                Cloud Active ☁️
+              </span>
+            )}
+            
+            <button 
+              onClick={syncFromWorkflowy} 
+              className="btn btn-outline" 
+              style={{ minHeight: '36px', height: '36px', padding: '0 12px', width: 'auto', fontSize: '0.85rem' }}
+              disabled={isLoading}
+            >
+              <RefreshCw size={14} className={isLoading ? 'spin-icon' : ''} />
+              Sync
+            </button>
+          </div>
         )}
       </header>
 
@@ -1550,31 +1793,33 @@ export default function App() {
         <div style={{ display: 'flex', gap: '8px', background: 'white', padding: '4px', borderRadius: 'var(--radius-lg)', marginBottom: '24px', border: '1px solid var(--border)' }}>
           <button 
             className={`btn ${activeTab === 'planner' ? 'btn-primary' : 'btn-outline'}`} 
-            style={{ flex: 1, minHeight: '40px', padding: '8px 12px', fontSize: '0.9rem', borderRadius: 'var(--radius-md)' }}
+            style={{ flex: '1 1 auto', minHeight: '40px', padding: '8px 12px', fontSize: '0.9rem', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
             onClick={() => setActiveTab('planner')}
           >
             <Calendar size={16} /> Planner
           </button>
           <button 
             className={`btn ${activeTab === 'groceries' ? 'btn-primary' : 'btn-outline'}`} 
-            style={{ flex: 1, minHeight: '40px', padding: '8px 12px', fontSize: '0.9rem', borderRadius: 'var(--radius-md)' }}
+            style={{ flex: '1 1 auto', minHeight: '40px', padding: '8px 12px', fontSize: '0.9rem', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
             onClick={() => setActiveTab('groceries')}
           >
             <ShoppingCart size={16} /> Shopping ({mergedGroceries.length})
           </button>
           <button 
             className={`btn ${activeTab === 'share' ? 'btn-primary' : 'btn-outline'}`} 
-            style={{ flex: 1, minHeight: '40px', padding: '8px 12px', fontSize: '0.9rem', borderRadius: 'var(--radius-md)' }}
+            style={{ flex: '0 0 44px', width: '44px', minHeight: '40px', padding: '8px', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             onClick={() => setActiveTab('share')}
+            title="Share Menu"
           >
-            <Share2 size={16} /> Share
+            <MessageSquare size={18} />
           </button>
           <button 
             className={`btn ${activeTab === 'settings' ? 'btn-primary' : 'btn-outline'}`} 
-            style={{ flex: 1, minHeight: '40px', padding: '8px 12px', fontSize: '0.9rem', borderRadius: 'var(--radius-md)' }}
+            style={{ flex: '0 0 44px', width: '44px', minHeight: '40px', padding: '8px', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             onClick={() => setActiveTab('settings')}
+            title="Settings / Config"
           >
-            <Settings size={16} /> Config
+            <Settings size={18} />
           </button>
         </div>
       )}
@@ -1616,7 +1861,7 @@ export default function App() {
           {/* Quick Roll Button */}
           <div style={{ display: 'flex', gap: '12px' }}>
             <button className="btn btn-secondary" onClick={rollAllUnlocked} style={{ flex: 1 }}>
-              <RefreshCw size={18} />
+              <RefreshCw size={18} className={isRollingAll ? 'roll-all-spin' : ''} />
               Roll All Unlocked
             </button>
           </div>
@@ -1826,7 +2071,7 @@ export default function App() {
             color: 'white',
             display: 'flex',
             flexDirection: 'column',
-            gap: '16px'
+            gap: '14px'
           }}>
             <div style={{ textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: '14px' }}>
               <h2 style={{ fontSize: '1.6rem', color: '#fbbf24', fontWeight: 800 }}>🌿 Fresh Kitchen Menu 🍋</h2>
@@ -1836,36 +2081,90 @@ export default function App() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {days.map(day => {
-                const bMeal = cleanText(weeklyMenu[`${day}-breakfast`]?.name || '---');
-                const lMeal = cleanText(weeklyMenu[`${day}-lunch`]?.name || '---');
-                const dMeal = cleanText(weeklyMenu[`${day}-dinner`]?.name || '---');
+              {/* Section 1: Weekday Routine */}
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                padding: '12px 16px',
+                borderRadius: 'var(--radius-lg)'
+              }}>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#fef3c7', marginBottom: '6px', borderBottom: '1px dashed rgba(255,255,255,0.15)', paddingBottom: '2px', marginTop: 0 }}>
+                  Weekday Routine (Mon – Fri) 🍱
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.9rem' }}>
+                  <div>🥐 <strong style={{ color: '#fef3c7' }}>Kyle's Breakfast:</strong> {cleanText(weeklyMenu['Monday-breakfast-kyle']?.name) || '---'}</div>
+                  <div>🥐 <strong style={{ color: '#fef3c7' }}>Ariel's Breakfast:</strong> {cleanText(weeklyMenu['Monday-breakfast-ariel']?.name) || '---'}</div>
+                  <div>🥗 <strong style={{ color: '#fef3c7' }}>Lunch:</strong> {cleanText(weeklyMenu['Monday-lunch']?.name) || '---'}</div>
+                  <div>🍿 <strong style={{ color: '#fef3c7' }}>Snack:</strong> {cleanText(weeklyMenu['Monday-snack']?.name) || '---'}</div>
+                </div>
+              </div>
 
-                return (
-                  <div key={day} style={{
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    backdropFilter: 'blur(8px)',
-                    border: '1px solid rgba(255, 255, 255, 0.15)',
-                    padding: '12px 16px',
-                    borderRadius: 'var(--radius-lg)'
-                  }}>
-                    <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#fef3c7', marginBottom: '6px', borderBottom: '1px dashed rgba(255,255,255,0.15)', paddingBottom: '2px' }}>
-                      {day}
-                    </h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.9rem' }}>
-                      {bMeal && !bMeal.includes('Choose') && (
-                        <div>🥐 <strong style={{ color: '#fef3c7' }}>Breakfast:</strong> {bMeal}</div>
-                      )}
-                      {lMeal && !lMeal.includes('Choose') && (
-                        <div>🥗 <strong style={{ color: '#fef3c7' }}>Lunch:</strong> {lMeal}</div>
-                      )}
-                      {dMeal && !dMeal.includes('Choose') && (
-                        <div>🍲 <strong style={{ color: '#fbbf24' }}>Dinner:</strong> {dMeal}</div>
-                      )}
-                    </div>
+              {/* Section 2: Dinners */}
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                padding: '12px 16px',
+                borderRadius: 'var(--radius-lg)'
+              }}>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#fbbf24', marginBottom: '6px', borderBottom: '1px dashed rgba(255,255,255,0.15)', paddingBottom: '2px', marginTop: 0 }}>
+                  Dinners for the Week 🍲
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.9rem' }}>
+                  {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].map(day => {
+                    const dinnerName = cleanText(weeklyMenu[`${day}-dinner`]?.name);
+                    const formattedLabel = formatDateLabel(day, 'dinner').replace(' Dinner', '');
+                    return dinnerName && !dinnerName.includes('Choose') ? (
+                      <div key={day}>🗓️ <strong style={{ color: '#fbbf24' }}>{formattedLabel}:</strong> {dinnerName}</div>
+                    ) : null;
+                  })}
+                </div>
+              </div>
+
+              {/* Section 3: Weekend Routine & Dinners */}
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                padding: '12px 16px',
+                borderRadius: 'var(--radius-lg)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px'
+              }}>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#fef3c7', borderBottom: '1px dashed rgba(255,255,255,0.15)', paddingBottom: '2px', margin: 0 }}>
+                  Weekend Routine & Dinners 🥐
+                </h3>
+                
+                {/* Saturday */}
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#fbbf24', marginBottom: '3px' }}>
+                    {formatDateLabel('Saturday', 'weekend')}
                   </div>
-                );
-              })}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '0.85rem', paddingLeft: '8px', borderLeft: '2px solid rgba(255,255,255,0.15)' }}>
+                    <div>🥐 <span style={{ opacity: 0.9 }}>Kyle B-fast:</span> {cleanText(weeklyMenu['Saturday-breakfast-kyle']?.name) || '---'}</div>
+                    <div>🥐 <span style={{ opacity: 0.9 }}>Ariel B-fast:</span> {cleanText(weeklyMenu['Saturday-breakfast-ariel']?.name) || '---'}</div>
+                    <div>🥗 <span style={{ opacity: 0.9 }}>Lunch:</span> {cleanText(weeklyMenu['Saturday-lunch']?.name) || '---'}</div>
+                    <div>🍿 <span style={{ opacity: 0.9 }}>Snack:</span> {cleanText(weeklyMenu['Saturday-snack']?.name) || '---'}</div>
+                    <div>🍲 <strong style={{ color: '#fbbf24' }}>Dinner:</strong> {cleanText(weeklyMenu['Saturday-dinner']?.name) || '---'}</div>
+                  </div>
+                </div>
+
+                {/* Sunday */}
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#fbbf24', marginBottom: '3px' }}>
+                    {formatDateLabel('Sunday', 'weekend')}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '0.85rem', paddingLeft: '8px', borderLeft: '2px solid rgba(255,255,255,0.15)' }}>
+                    <div>🥐 <span style={{ opacity: 0.9 }}>Kyle B-fast:</span> {cleanText(weeklyMenu['Sunday-breakfast-kyle']?.name) || '---'}</div>
+                    <div>🥐 <span style={{ opacity: 0.9 }}>Ariel B-fast:</span> {cleanText(weeklyMenu['Sunday-breakfast-ariel']?.name) || '---'}</div>
+                    <div>🥗 <span style={{ opacity: 0.9 }}>Lunch:</span> {cleanText(weeklyMenu['Sunday-lunch']?.name) || '---'}</div>
+                    <div>🍿 <span style={{ opacity: 0.9 }}>Snack:</span> {cleanText(weeklyMenu['Sunday-snack']?.name) || '---'}</div>
+                    <div>🍲 <strong style={{ color: '#fbbf24' }}>Dinner:</strong> {cleanText(weeklyMenu['Sunday-dinner']?.name) || '---'}</div>
+                  </div>
+                </div>
+              </div>
             </div>
             <div style={{ textAlign: 'center', fontSize: '0.75rem', opacity: 0.8, marginTop: '8px' }}>
               Generated from our Workflowy database with 💚
@@ -2311,7 +2610,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.4.0 • Built on May 30, 2026 at 2:30 PM CT
+        v1.5.0 • Built on May 30, 2026 at 2:40 PM CT
       </footer>
     </div>
   );
