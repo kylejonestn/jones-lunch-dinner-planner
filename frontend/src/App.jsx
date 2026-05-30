@@ -269,18 +269,34 @@ export default function App() {
     setIsLoading(true);
     setSyncMessage('Connecting to Workflowy root...');
     try {
-      // 1. Fetch root items
-      const rootRes = await callWorkflowy('list-children', { item_id: 'None' });
-      const rootItems = rootRes.items || rootRes.children || [];
-      
-      // Look for "Meal Planning🍴" outline
-      let mealPlanningNode = rootItems.find(item => 
-        cleanText(item.name).includes('Meal Planning')
-      );
+      // Helper for deep recursive search
+      async function findNodeDeeply(parentId, targetName, currentDepth = 0, maxDepth = 3) {
+        if (currentDepth > maxDepth) return null;
+        
+        const response = await callWorkflowy('list-children', { item_id: parentId });
+        const items = response.items || response.children || [];
+        
+        const match = items.find(item => cleanText(item.name).toLowerCase().includes(targetName.toLowerCase()));
+        if (match) return match;
+        
+        for (const item of items) {
+          if (item.is_completed || !item.name) continue;
+          try {
+            const found = await findNodeDeeply(item.id, targetName, currentDepth + 1, maxDepth);
+            if (found) return found;
+          } catch {
+            // Ignore sub-outline list failures
+          }
+        }
+        return null;
+      }
+
+      // 1. Fetch root items and search deeply
+      let mealPlanningNode = await findNodeDeeply('None', 'Meal Planning', 0, 3);
 
       if (!mealPlanningNode) {
         setIsLoading(false);
-        alert('Could not find a node named "Meal Planning🍴" at the root level of your Workflowy. Please make sure it is a primary bullet in your list!');
+        alert('Could not find a node named "Meal Planning🍴" within the top 3 levels of your Workflowy. Please make sure the folder exists and is named correctly!');
         return;
       }
 
@@ -1198,7 +1214,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.0.2 • Built on May 30, 2026 at 9:20 AM CT
+        v1.0.3 • Built on May 30, 2026 at 9:25 AM CT
       </footer>
     </div>
   );
