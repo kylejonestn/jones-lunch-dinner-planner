@@ -180,11 +180,40 @@ export default function App() {
     return defaultFri.toISOString().split('T')[0];
   });
 
+  // Master cache for all weeks' menus and locks
+  const [allWeeksMenu, setAllWeeksMenu] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('wf_all_weeks_menu')) || {};
+    } catch {
+      return {};
+    }
+  });
+
+  const [allWeeksLocked, setAllWeeksLocked] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('wf_all_weeks_locked')) || {};
+    } catch {
+      return {};
+    }
+  });
+
   // Active weekly menu planner grid state
   // Key format: "Monday-dinner", value is a recipe object
   const [weeklyMenu, setWeeklyMenu] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem('wf_weekly_menu')) || {};
+      const defaultFri = getFridayOfCurrentWeek();
+      const currentDay = new Date().getDay();
+      if (currentDay === 4) {
+        defaultFri.setDate(defaultFri.getDate() + 7);
+      }
+      const startupFri = defaultFri.toISOString().split('T')[0];
+      
+      const allMenu = JSON.parse(localStorage.getItem('wf_all_weeks_menu')) || {};
+      if (Object.keys(allMenu).length === 0) {
+        const legacy = JSON.parse(localStorage.getItem('wf_weekly_menu')) || {};
+        return legacy;
+      }
+      return allMenu[startupFri] || {};
     } catch {
       return {};
     }
@@ -193,7 +222,19 @@ export default function App() {
   // Locked state for slots (to avoid rolls)
   const [lockedSlots, setLockedSlots] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem('wf_locked_slots')) || {};
+      const defaultFri = getFridayOfCurrentWeek();
+      const currentDay = new Date().getDay();
+      if (currentDay === 4) {
+        defaultFri.setDate(defaultFri.getDate() + 7);
+      }
+      const startupFri = defaultFri.toISOString().split('T')[0];
+      
+      const allLocked = JSON.parse(localStorage.getItem('wf_all_weeks_locked')) || {};
+      if (Object.keys(allLocked).length === 0) {
+        const legacy = JSON.parse(localStorage.getItem('wf_locked_slots')) || {};
+        return legacy;
+      }
+      return allLocked[startupFri] || {};
     } catch {
       return {};
     }
@@ -222,11 +263,42 @@ export default function App() {
     localStorage.setItem('wf_workflowy_groceries', JSON.stringify(workflowyGroceries));
     localStorage.setItem('wf_weekly_menu', JSON.stringify(weeklyMenu));
     localStorage.setItem('wf_locked_slots', JSON.stringify(lockedSlots));
+    localStorage.setItem('wf_all_weeks_menu', JSON.stringify(allWeeksMenu));
+    localStorage.setItem('wf_all_weeks_locked', JSON.stringify(allWeeksLocked));
     localStorage.setItem('wf_proxy_url', proxyUrl);
     localStorage.setItem('wf_google_client_id', googleClientId);
     localStorage.setItem('wf_google_selected_calendar_id', selectedCalendarId);
     localStorage.setItem('wf_dinner_time', dinnerTime);
-  }, [apiKey, customFolderId, weeklyPlanFolder, rootNodeId, nodeMappings, recipes, ingredientCache, detailsCache, workflowyGroceries, weeklyMenu, lockedSlots, proxyUrl, googleClientId, selectedCalendarId, dinnerTime]);
+  }, [apiKey, customFolderId, weeklyPlanFolder, rootNodeId, nodeMappings, recipes, ingredientCache, detailsCache, workflowyGroceries, weeklyMenu, lockedSlots, allWeeksMenu, allWeeksLocked, proxyUrl, googleClientId, selectedCalendarId, dinnerTime]);
+
+  // Sync changes in weeklyMenu or lockedSlots back to the master weeks cache
+  useEffect(() => {
+    if (Object.keys(weeklyMenu).length === 0) return;
+    
+    setAllWeeksMenu(prev => {
+      const existing = prev[selectedFriday] || {};
+      const prevNames = Object.entries(existing).map(([k, v]) => `${k}:${v?.name}`).join(',');
+      const newNames = Object.entries(weeklyMenu).map(([k, v]) => `${k}:${v?.name}`).join(',');
+      if (prevNames === newNames) return prev;
+      
+      const updated = { ...prev, [selectedFriday]: weeklyMenu };
+      return updated;
+    });
+  }, [weeklyMenu, selectedFriday]);
+
+  useEffect(() => {
+    if (Object.keys(lockedSlots).length === 0) return;
+    
+    setAllWeeksLocked(prev => {
+      const existing = prev[selectedFriday] || {};
+      const prevLock = Object.entries(existing).map(([k, v]) => `${k}:${v}`).join(',');
+      const newLock = Object.entries(lockedSlots).map(([k, v]) => `${k}:${v}`).join(',');
+      if (prevLock === newLock) return prev;
+      
+      const updated = { ...prev, [selectedFriday]: lockedSlots };
+      return updated;
+    });
+  }, [lockedSlots, selectedFriday]);
 
   // Load Google Identity Services SDK dynamically
   useEffect(() => {
@@ -464,7 +536,7 @@ export default function App() {
   const saveWeekToCloud = async (sundayDate, menu, locked) => {
     if (!apiKey || !rootNodeId) return;
     
-    const allowedWeeks = getSyncWindowSundays();
+    const allowedWeeks = getSyncWindowFridays();
     if (!allowedWeeks.includes(sundayDate)) {
       return; 
     }
@@ -513,7 +585,7 @@ export default function App() {
   const loadWeekFromCloud = async (sundayDate) => {
     if (!apiKey || !rootNodeId) return;
     
-    const allowedWeeks = getSyncWindowSundays();
+    const allowedWeeks = getSyncWindowFridays();
     if (!allowedWeeks.includes(sundayDate)) {
       return; 
     }
@@ -701,8 +773,12 @@ export default function App() {
 
   // Initialize weekly grid based on spreadsheet rotations when date changes
   useEffect(() => {
-    // If we change weeks, check if we already have a menu saved. If not, auto-seed with spreadsheet
-    const newMenu = { ...weeklyMenu };
+    // Load from cache first
+    const savedMenu = allWeeksMenu[selectedFriday] || {};
+    const savedLocked = allWeeksLocked[selectedFriday] || {};
+    
+    const newMenu = { ...savedMenu };
+    const newLocked = { ...savedLocked };
     let changed = false;
 
     // We fetch rotation baseline
@@ -804,10 +880,9 @@ export default function App() {
       }
     });
 
-    if (changed) {
-      setWeeklyMenu(newMenu);
-    }
-  }, [selectedFriday]);
+    setWeeklyMenu(newMenu);
+    setLockedSlots(newLocked);
+  }, [selectedFriday, allWeeksMenu, allWeeksLocked]);
 
   // --- WORKFLOWY API CLIENT ENGINES ---
   async function callWorkflowy(action, body) {
