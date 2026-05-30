@@ -38,9 +38,9 @@ import {
 // Utility to strip HTML tags and decode HTML entities from Workflowy text values
 function cleanText(text) {
   if (!text) return '';
-  let cleaned = text.replace(/<[^>]*>/g, '');
+  let cleaned = text;
   
-  // Decode standard HTML entities
+  // Decode standard HTML entities (double-pass to handle double encoding like &amp;amp;)
   const entities = {
     '&amp;': '&',
     '&lt;': '<',
@@ -50,9 +50,14 @@ function cleanText(text) {
     '&apos;': "'"
   };
   
-  Object.entries(entities).forEach(([entity, replacement]) => {
-    cleaned = cleaned.replaceAll(entity, replacement);
-  });
+  for (let i = 0; i < 2; i++) {
+    Object.entries(entities).forEach(([entity, replacement]) => {
+      cleaned = cleaned.replaceAll(entity, replacement);
+    });
+  }
+  
+  // Strip HTML tags after decoding entities (so tags like &lt;b&gt; are correctly cleaned)
+  cleaned = cleaned.replace(/<[^>]*>/g, '');
   
   return cleaned.trim();
 }
@@ -93,6 +98,7 @@ export default function App() {
   });
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('wf_api_key') || '');
   const [customFolderId, setCustomFolderId] = useState(() => localStorage.getItem('wf_custom_folder_id') || '');
+  const [weeklyPlanFolder, setWeeklyPlanFolder] = useState(() => localStorage.getItem('wf_weekly_plan_folder') || '');
   const [rootNodeId, setRootNodeId] = useState(() => localStorage.getItem('wf_root_node_id') || '');
   const [activeTab, setActiveTab] = useState('planner');
   const [isLoading, setIsLoading] = useState(false);
@@ -190,6 +196,7 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('wf_api_key', apiKey);
     localStorage.setItem('wf_custom_folder_id', customFolderId);
+    localStorage.setItem('wf_weekly_plan_folder', weeklyPlanFolder);
     localStorage.setItem('wf_root_node_id', rootNodeId);
     localStorage.setItem('wf_node_mappings', JSON.stringify(nodeMappings));
     localStorage.setItem('wf_recipes', JSON.stringify(recipes));
@@ -199,7 +206,7 @@ export default function App() {
     localStorage.setItem('wf_weekly_menu', JSON.stringify(weeklyMenu));
     localStorage.setItem('wf_locked_slots', JSON.stringify(lockedSlots));
     localStorage.setItem('wf_proxy_url', proxyUrl);
-  }, [apiKey, customFolderId, rootNodeId, nodeMappings, recipes, ingredientCache, detailsCache, workflowyGroceries, weeklyMenu, lockedSlots, proxyUrl]);
+  }, [apiKey, customFolderId, weeklyPlanFolder, rootNodeId, nodeMappings, recipes, ingredientCache, detailsCache, workflowyGroceries, weeklyMenu, lockedSlots, proxyUrl]);
 
   // Current date formatted beautifully
   const currentWeekLabel = useMemo(() => {
@@ -273,6 +280,30 @@ export default function App() {
           source: 'workflowy',
           category: 'dinners'
         };
+        changed = true;
+      }
+    });
+
+    // Seeding & self-healing for unified Weekday slots
+    ['breakfast', 'lunch', 'snack'].forEach(slotId => {
+      const key = `Weekday-${slotId}`;
+      const rotVal = rotation[slotId];
+      const seedPrefix = slotId === 'breakfast' ? 'b' : slotId === 'lunch' ? 'l' : 's';
+      const catName = slotId === 'dinner' ? 'dinners' : `${slotId}s`;
+      
+      if (!newMenu[key]) {
+        // First try to load from Monday's slot if it exists (for compatibility with existing drafts)
+        const existingDefault = newMenu[`Monday-${slotId}`];
+        if (existingDefault && existingDefault.name && !existingDefault.name.includes('Choose')) {
+          newMenu[key] = { ...existingDefault };
+        } else {
+          newMenu[key] = {
+            id: `seed-${seedPrefix}-${rotVal.id}`,
+            name: rotVal.name,
+            source: 'spreadsheet',
+            category: catName
+          };
+        }
         changed = true;
       }
     });
@@ -374,8 +405,28 @@ export default function App() {
         const txt = cleanText(node.name).toLowerCase();
         if (txt.includes('recipe')) mappings.recipesId = node.id;
         else if (txt.includes('shopping') || txt.includes('grocery')) mappings.groceryId = node.id;
-        else if (txt.includes('menu')) mappings.menuId = node.id;
       });
+
+      // Resolve customizable menu folder ID
+      let foundMenuId = null;
+      if (weeklyPlanFolder) {
+        const cleanId = weeklyPlanFolder.trim().replace(/^.*\/#\//, '');
+        const isId = /^[0-9a-fA-F-]{12,36}$/.test(cleanId);
+        if (isId) {
+          foundMenuId = cleanId;
+        } else {
+          const match = subNodes.find(node => cleanText(node.name).toLowerCase().includes(weeklyPlanFolder.toLowerCase().trim()));
+          if (match) foundMenuId = match.id;
+        }
+      }
+
+      if (!foundMenuId) {
+        // Fallback to searching for "menu"
+        const match = subNodes.find(node => cleanText(node.name).toLowerCase().includes('menu'));
+        if (match) foundMenuId = match.id;
+      }
+
+      mappings.menuId = foundMenuId;
 
       if (!mappings.recipesId) {
         alert('Could not find a sub-bullet named "Recipes 📇" under your Meal Planning folder.');
@@ -757,16 +808,25 @@ export default function App() {
       }
 
       const randomRecipe = pool[Math.floor(Math.random() * pool.length)];
+      const mealObj = {
+        id: randomRecipe.id || `rolled-${slot}-${Date.now()}`,
+        name: randomRecipe.name,
+        source: randomRecipe.id ? 'workflowy' : 'seed',
+        category: slot === 'dinner' ? 'dinners' : `${slot}s`
+      };
 
-      setWeeklyMenu(prev => ({
-        ...prev,
-        [key]: {
-          id: randomRecipe.id || `rolled-${slot}-${Date.now()}`,
-          name: randomRecipe.name,
-          source: randomRecipe.id ? 'workflowy' : 'seed',
-          category: slot === 'dinner' ? 'dinners' : `${slot}s`
+      setWeeklyMenu(prev => {
+        const updated = { ...prev };
+        if (day === 'Weekday') {
+          ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(d => {
+            updated[`${d}-${slot}`] = mealObj;
+          });
+          updated[`Weekday-${slot}`] = mealObj;
+        } else {
+          updated[key] = mealObj;
         }
-      }));
+        return updated;
+      });
 
       setRollingSlots(prev => ({ ...prev, [key]: false }));
     }, 600); // 600ms match standard roll CSS transition
@@ -774,20 +834,42 @@ export default function App() {
 
   // Roll all slots that are not locked
   function rollAllUnlocked() {
-    days.forEach(day => {
-      slots.forEach(slot => {
-        rollSlot(day, slot.id);
-      });
+    // 1. Roll Weekday slots (Mon - Fri) unified
+    if (!lockedSlots['Weekday-breakfast']) rollSlot('Weekday', 'breakfast');
+    if (!lockedSlots['Weekday-lunch']) rollSlot('Weekday', 'lunch');
+    if (!lockedSlots['Weekday-snack']) rollSlot('Weekday', 'snack');
+
+    // 2. Roll Saturday slots
+    if (!lockedSlots['Saturday-breakfast']) rollSlot('Saturday', 'breakfast');
+    if (!lockedSlots['Saturday-lunch']) rollSlot('Saturday', 'lunch');
+    if (!lockedSlots['Saturday-snack']) rollSlot('Saturday', 'snack');
+
+    // 3. Roll Sunday slots
+    if (!lockedSlots['Sunday-breakfast']) rollSlot('Sunday', 'breakfast');
+    if (!lockedSlots['Sunday-lunch']) rollSlot('Sunday', 'lunch');
+    if (!lockedSlots['Sunday-snack']) rollSlot('Sunday', 'snack');
+
+    // 4. Roll Dinners for all days individually
+    days.forEach(d => {
+      if (!lockedSlots[`${d}-dinner`]) {
+        rollSlot(d, 'dinner');
+      }
     });
   }
 
   // Toggle locked slot
   function toggleLock(day, slot) {
     const key = `${day}-${slot}`;
-    setLockedSlots(prev => ({
-      ...prev,
-      [key]: !prev[key]
-    }));
+    setLockedSlots(prev => {
+      const nextVal = !prev[key];
+      const updated = { ...prev, [key]: nextVal };
+      if (day === 'Weekday') {
+        ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(d => {
+          updated[`${d}-${slot}`] = nextVal;
+        });
+      }
+      return updated;
+    });
   }
 
   // Manual Select override
@@ -822,22 +904,48 @@ export default function App() {
   function selectManualRecipe(item) {
     if (!showSearchModal) return;
     const { day, slot } = showSearchModal;
-    const key = `${day}-${slot}`;
-    setWeeklyMenu(prev => ({
-      ...prev,
-      [key]: {
+    
+    setWeeklyMenu(prev => {
+      const updated = { ...prev };
+      const mealObj = {
         id: item.id || `manual-${slot}-${Date.now()}`,
         name: item.name,
         source: item.id ? 'workflowy' : 'seed',
         category: slot === 'dinner' ? 'dinners' : `${slot}s`
+      };
+
+      if (day === 'Weekday') {
+        ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(d => {
+          updated[`${d}-${slot}`] = mealObj;
+        });
+        updated[`Weekday-${slot}`] = mealObj;
+      } else {
+        const key = `${day}-${slot}`;
+        updated[key] = mealObj;
       }
-    }));
+      return updated;
+    });
+
     setShowSearchModal(null);
   }
 
   // --- WRITEBACK TO WORKFLOWY ---
   async function writeBackToWorkflowy() {
-    if (!rootNodeId || !nodeMappings.menuId || !nodeMappings.groceryId) {
+    // Resolve dynamically from weeklyPlanFolder if provided
+    let targetMenuId = null;
+    if (weeklyPlanFolder) {
+      const cleanPlanId = weeklyPlanFolder.trim().replace(/^.*\/#\//, '');
+      const isId = /^[0-9a-fA-F-]{12,36}$/.test(cleanPlanId);
+      if (isId) {
+        targetMenuId = cleanPlanId;
+      }
+    }
+    
+    if (!targetMenuId) {
+      targetMenuId = nodeMappings.menuId;
+    }
+
+    if (!rootNodeId || !targetMenuId || !nodeMappings.groceryId) {
       alert('You must sync with your Workflowy account first to map the outlines!');
       return;
     }
@@ -849,7 +957,7 @@ export default function App() {
       const weekLabel = `Week of ${selectedSunday}`;
 
       // 1. Check if the week already exists in Menu for the Week, and delete it if so to avoid duplicates
-      const menuChildrenRes = await callWorkflowy('list-children', { item_id: nodeMappings.menuId });
+      const menuChildrenRes = await callWorkflowy('list-children', { item_id: targetMenuId });
       const currentMenus = menuChildrenRes.items || menuChildrenRes.children || [];
       const oldWeekNode = currentMenus.find(m => cleanText(m.name).includes(weekLabel));
       if (oldWeekNode) {
@@ -859,7 +967,7 @@ export default function App() {
 
       // 2. Create the main Week bullet in Menu for the Week
       const weekNodeRes = await callWorkflowy('create-item', {
-        parent_id: nodeMappings.menuId,
+        parent_id: targetMenuId,
         name: weekLabel,
         position: 'top'
       });
@@ -963,6 +1071,54 @@ export default function App() {
     alert(msg);
   }
 
+  const renderPlannerSlot = (day, slotId, customLabel = null) => {
+    const key = `${day}-${slotId}`;
+    const recipe = weeklyMenu[key] || { name: 'Choose...' };
+    const isLocked = lockedSlots[key];
+    const isRolling = rollingSlots[key];
+    
+    const slotDef = slots.find(s => s.id === slotId) || { label: slotId, color: 'badge-green' };
+    const label = customLabel || slotDef.label;
+
+    return (
+      <div key={slotId} className={`slot-container ${isLocked ? 'locked' : ''}`}>
+        <div className="slot-info" onClick={() => openSelector(day, slotId)}>
+          <div className="slot-label">{label}</div>
+          <div className={`slot-value ${isRolling ? 'rolling' : ''}`}>
+            {cleanText(recipe.name)}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          {/* Lock Toggle */}
+          <button 
+            onClick={() => toggleLock(day, slotId)} 
+            style={{
+              padding: '8px',
+              color: isLocked ? 'var(--primary-dark)' : 'var(--text-muted)',
+              borderRadius: 'var(--radius-sm)',
+              background: isLocked ? 'rgba(16, 185, 129, 0.1)' : 'transparent'
+            }}
+          >
+            {isLocked ? <Lock size={16} /> : <Unlock size={16} />}
+          </button>
+          {/* Roll Toggle */}
+          <button 
+            onClick={() => rollSlot(day, slotId)} 
+            disabled={isLocked}
+            style={{
+              padding: '8px',
+              color: isLocked ? '#cbd5e1' : 'var(--secondary-dark)',
+              borderRadius: 'var(--radius-sm)',
+              background: isLocked ? 'transparent' : 'var(--secondary-light)'
+            }}
+          >
+            <RefreshCw size={16} className={isRolling ? 'spin-icon' : ''} />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   // --- RENDER SCREENS ---
   return (
     <div className="container">
@@ -1031,7 +1187,7 @@ export default function App() {
             </p>
           </div>
 
-          <div className="input-group" style={{ textAlign: 'left', marginBottom: '24px' }}>
+          <div className="input-group" style={{ textAlign: 'left', marginBottom: '20px' }}>
             <label className="input-label">Workflowy Folder ID (Optional)</label>
             <input
               type="text"
@@ -1042,6 +1198,20 @@ export default function App() {
             />
             <p style={{ fontSize: '0.75rem', marginTop: '4px', color: 'var(--text-muted)' }}>
               If your <b>Meal Planning🍴</b> folder is deeply nested under sub-bullets, paste its bullet link or ID here to bypass searching.
+            </p>
+          </div>
+
+          <div className="input-group" style={{ textAlign: 'left', marginBottom: '24px' }}>
+            <label className="input-label">where in Workflowy to save the Weekly Plan (Optional)</label>
+            <input
+              type="text"
+              placeholder="e.g. Menu for the Week OR bullet ID / link"
+              className="input-text"
+              value={weeklyPlanFolder}
+              onChange={(e) => setWeeklyPlanFolder(e.target.value)}
+            />
+            <p style={{ fontSize: '0.75rem', marginTop: '4px', color: 'var(--text-muted)' }}>
+              Specify a custom bullet name or paste a bullet link/ID where the weekly plan should be saved. Defaults to searching for a child bullet containing "menu".
             </p>
           </div>
 
@@ -1128,63 +1298,61 @@ export default function App() {
             </button>
           </div>
 
-          {/* Daily Schedule Cards */}
-          {days.map(day => (
-            <div key={day} className="card card-primary" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-                <h3 style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>{day}</h3>
-                <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>Suggested Rotation</span>
+          {/* Weekday Routine Card */}
+          <div className="card card-primary" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+              <h3 style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>Weekday Routine ☕️</h3>
+              <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>Mon – Fri Same Plan</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {renderPlannerSlot('Weekday', 'breakfast')}
+              {renderPlannerSlot('Weekday', 'lunch')}
+              {renderPlannerSlot('Weekday', 'snack')}
+            </div>
+          </div>
+
+          {/* Weekly Dinners Card */}
+          <div className="card card-primary" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+              <h3 style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>Weekly Dinners 🍲</h3>
+              <span className="badge badge-yellow" style={{ fontSize: '0.7rem' }}>Daily Selection</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {days.map(day => renderPlannerSlot(day, 'dinner', `${day} Dinner`))}
+            </div>
+          </div>
+
+          {/* Weekend Routine Card */}
+          <div className="card card-primary" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+              <h3 style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>Weekend Routine 🥐</h3>
+              <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>Sat – Sun Plan</span>
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Saturday Section */}
+              <div>
+                <h4 style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '0.95rem', marginBottom: '8px', borderBottom: '1px dashed var(--border)', paddingBottom: '4px' }}>Saturday</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {renderPlannerSlot('Saturday', 'breakfast')}
+                  {renderPlannerSlot('Saturday', 'lunch')}
+                  {renderPlannerSlot('Saturday', 'snack')}
+                  {renderPlannerSlot('Saturday', 'dinner', 'Saturday Dinner')}
+                </div>
               </div>
 
-              {/* Breakfast, Lunch, Snack, Dinner Slots */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {slots.map(slot => {
-                  const key = `${day}-${slot.id}`;
-                  const recipe = weeklyMenu[key] || { name: 'Choose...' };
-                  const isLocked = lockedSlots[key];
-                  const isRolling = rollingSlots[key];
-
-                  return (
-                    <div key={slot.id} className={`slot-container ${isLocked ? 'locked' : ''}`}>
-                      <div className="slot-info" onClick={() => openSelector(day, slot.id)}>
-                        <div className="slot-label">{slot.label}</div>
-                        <div className={`slot-value ${isRolling ? 'rolling' : ''}`}>
-                          {cleanText(recipe.name)}
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        {/* Lock Toggle */}
-                        <button 
-                          onClick={() => toggleLock(day, slot.id)} 
-                          style={{
-                            padding: '8px',
-                            color: isLocked ? 'var(--primary-dark)' : 'var(--text-muted)',
-                            borderRadius: 'var(--radius-sm)',
-                            background: isLocked ? 'rgba(16, 185, 129, 0.1)' : 'transparent'
-                          }}
-                        >
-                          {isLocked ? <Lock size={16} /> : <Unlock size={16} />}
-                        </button>
-                        {/* Roll Toggle */}
-                        <button 
-                          onClick={() => rollSlot(day, slot.id)} 
-                          disabled={isLocked}
-                          style={{
-                            padding: '8px',
-                            color: isLocked ? '#cbd5e1' : 'var(--secondary-dark)',
-                            borderRadius: 'var(--radius-sm)',
-                            background: isLocked ? 'transparent' : 'var(--secondary-light)'
-                          }}
-                        >
-                          <RefreshCw size={16} className={isRolling ? 'spin-icon' : ''} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+              {/* Sunday Section */}
+              <div>
+                <h4 style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '0.95rem', marginBottom: '8px', borderBottom: '1px dashed var(--border)', paddingBottom: '4px' }}>Sunday</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {renderPlannerSlot('Sunday', 'breakfast')}
+                  {renderPlannerSlot('Sunday', 'lunch')}
+                  {renderPlannerSlot('Sunday', 'snack')}
+                  {renderPlannerSlot('Sunday', 'dinner', 'Sunday Dinner')}
+                </div>
               </div>
             </div>
-          ))}
+          </div>
 
           {/* Sticky Bottom Writeback bar */}
           <div className="bottom-tray">
@@ -1355,6 +1523,20 @@ export default function App() {
               />
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                 If your folder is deeply nested and recursive sync fails, paste the URL or ID of your "Meal Planning🍴" bullet here!
+              </p>
+            </div>
+
+            <div className="input-group">
+              <label className="input-label">where in Workflowy to save the Weekly Plan (Optional)</label>
+              <input 
+                type="text" 
+                className="input-text" 
+                value={weeklyPlanFolder} 
+                onChange={(e) => setWeeklyPlanFolder(e.target.value)} 
+                placeholder="e.g. Menu for the Week OR bullet ID / link"
+              />
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Specify a custom bullet name or paste a bullet link/ID where the weekly plan should be saved. Defaults to searching for a child bullet containing "menu".
               </p>
             </div>
 
