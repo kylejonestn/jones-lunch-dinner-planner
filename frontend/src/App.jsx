@@ -219,7 +219,8 @@ export default function App() {
   // Days list & Slot Categories
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const slots = [
-    { id: 'breakfast', label: 'Breakfast', color: 'badge-yellow' },
+    { id: 'breakfast-kyle', label: 'Breakfast: Kyle', color: 'badge-yellow' },
+    { id: 'breakfast-ariel', label: 'Breakfast: Ariel', color: 'badge-yellow' },
     { id: 'lunch', label: 'Lunch', color: 'badge-green' },
     { id: 'snack', label: 'Snack', color: 'badge-yellow' },
     { id: 'dinner', label: 'Dinner', color: 'badge-green' }
@@ -235,11 +236,11 @@ export default function App() {
     const rotation = getRotationForDate(selectedSunday);
 
     days.forEach(day => {
-      // 1. Breakfast
-      const bKey = `${day}-breakfast`;
-      if (!newMenu[bKey]) {
-        newMenu[bKey] = {
-          id: `seed-b-${rotation.breakfast.id}`,
+      // 1. Breakfast (Kyle)
+      const bKyleKey = `${day}-breakfast-kyle`;
+      if (!newMenu[bKyleKey]) {
+        newMenu[bKyleKey] = {
+          id: `seed-b-kyle-${rotation.breakfast.id}`,
           name: rotation.breakfast.name,
           source: 'spreadsheet',
           category: 'breakfasts'
@@ -247,7 +248,19 @@ export default function App() {
         changed = true;
       }
 
-      // 2. Lunch
+      // 2. Breakfast (Ariel)
+      const bArielKey = `${day}-breakfast-ariel`;
+      if (!newMenu[bArielKey]) {
+        newMenu[bArielKey] = {
+          id: `seed-b-ariel-${rotation.breakfast.id}`,
+          name: rotation.breakfast.name,
+          source: 'spreadsheet',
+          category: 'breakfasts'
+        };
+        changed = true;
+      }
+
+      // 3. Lunch
       const lKey = `${day}-lunch`;
       if (!newMenu[lKey]) {
         newMenu[lKey] = {
@@ -259,7 +272,7 @@ export default function App() {
         changed = true;
       }
 
-      // 3. Snack
+      // 4. Snack
       const sKey = `${day}-snack`;
       if (!newMenu[sKey]) {
         newMenu[sKey] = {
@@ -271,7 +284,7 @@ export default function App() {
         changed = true;
       }
 
-      // 4. Dinner is left unselected or rolls on demand based on Option A
+      // 5. Dinner is left unselected or rolls on demand based on Option A
       const dKey = `${day}-dinner`;
       if (!newMenu[dKey]) {
         newMenu[dKey] = {
@@ -285,11 +298,12 @@ export default function App() {
     });
 
     // Seeding & self-healing for unified Weekday slots
-    ['breakfast', 'lunch', 'snack'].forEach(slotId => {
+    ['breakfast-kyle', 'breakfast-ariel', 'lunch', 'snack'].forEach(slotId => {
       const key = `Weekday-${slotId}`;
-      const rotVal = rotation[slotId];
-      const seedPrefix = slotId === 'breakfast' ? 'b' : slotId === 'lunch' ? 'l' : 's';
-      const catName = slotId === 'dinner' ? 'dinners' : `${slotId}s`;
+      const isB = slotId.startsWith('breakfast');
+      const rotVal = isB ? rotation.breakfast : rotation[slotId];
+      const seedPrefix = isB ? 'b' : slotId === 'lunch' ? 'l' : 's';
+      const catName = isB ? 'breakfasts' : `${slotId}s`;
       
       if (!newMenu[key]) {
         // First try to load from Monday's slot if it exists (for compatibility with existing drafts)
@@ -785,7 +799,7 @@ export default function App() {
 
     setTimeout(() => {
       let pool = [];
-      if (slot === 'breakfast') {
+      if (slot.startsWith('breakfast')) {
         // Pull from synced Workflowy breakfasts, falling back to seed database
         pool = recipes.breakfasts.length > 0 ? recipes.breakfasts : SEED_BREAKFASTS;
       } else if (slot === 'lunch') {
@@ -812,7 +826,7 @@ export default function App() {
         id: randomRecipe.id || `rolled-${slot}-${Date.now()}`,
         name: randomRecipe.name,
         source: randomRecipe.id ? 'workflowy' : 'seed',
-        category: slot === 'dinner' ? 'dinners' : `${slot}s`
+        category: slot === 'dinner' ? 'dinners' : (slot.startsWith('breakfast') ? 'breakfasts' : `${slot}s`)
       };
 
       setWeeklyMenu(prev => {
@@ -835,17 +849,20 @@ export default function App() {
   // Roll all slots that are not locked
   function rollAllUnlocked() {
     // 1. Roll Weekday slots (Mon - Fri) unified
-    if (!lockedSlots['Weekday-breakfast']) rollSlot('Weekday', 'breakfast');
+    if (!lockedSlots['Weekday-breakfast-kyle']) rollSlot('Weekday', 'breakfast-kyle');
+    if (!lockedSlots['Weekday-breakfast-ariel']) rollSlot('Weekday', 'breakfast-ariel');
     if (!lockedSlots['Weekday-lunch']) rollSlot('Weekday', 'lunch');
     if (!lockedSlots['Weekday-snack']) rollSlot('Weekday', 'snack');
 
     // 2. Roll Saturday slots
-    if (!lockedSlots['Saturday-breakfast']) rollSlot('Saturday', 'breakfast');
+    if (!lockedSlots['Saturday-breakfast-kyle']) rollSlot('Saturday', 'breakfast-kyle');
+    if (!lockedSlots['Saturday-breakfast-ariel']) rollSlot('Saturday', 'breakfast-ariel');
     if (!lockedSlots['Saturday-lunch']) rollSlot('Saturday', 'lunch');
     if (!lockedSlots['Saturday-snack']) rollSlot('Saturday', 'snack');
 
     // 3. Roll Sunday slots
-    if (!lockedSlots['Sunday-breakfast']) rollSlot('Sunday', 'breakfast');
+    if (!lockedSlots['Sunday-breakfast-kyle']) rollSlot('Sunday', 'breakfast-kyle');
+    if (!lockedSlots['Sunday-breakfast-ariel']) rollSlot('Sunday', 'breakfast-ariel');
     if (!lockedSlots['Sunday-lunch']) rollSlot('Sunday', 'lunch');
     if (!lockedSlots['Sunday-snack']) rollSlot('Sunday', 'snack');
 
@@ -882,7 +899,7 @@ export default function App() {
     if (!showSearchModal) return [];
     const { slot } = showSearchModal;
     let list = [];
-    if (slot === 'breakfast') {
+    if (slot.startsWith('breakfast')) {
       list = recipes.breakfasts.length > 0 ? recipes.breakfasts : SEED_BREAKFASTS;
     } else if (slot === 'lunch') {
       list = recipes.lunches.length > 0 ? recipes.lunches : SEED_LUNCHES;
@@ -911,7 +928,7 @@ export default function App() {
         id: item.id || `manual-${slot}-${Date.now()}`,
         name: item.name,
         source: item.id ? 'workflowy' : 'seed',
-        category: slot === 'dinner' ? 'dinners' : `${slot}s`
+        category: slot === 'dinner' ? 'dinners' : (slot.startsWith('breakfast') ? 'breakfasts' : `${slot}s`)
       };
 
       if (day === 'Weekday') {
@@ -1070,6 +1087,35 @@ export default function App() {
     navigator.clipboard.writeText(txt);
     alert(msg);
   }
+
+  const getDayDate = (dayName) => {
+    const start = new Date(selectedSunday);
+    let offset = 0;
+    if (dayName === 'Monday') offset = 1;
+    else if (dayName === 'Tuesday') offset = 2;
+    else if (dayName === 'Wednesday') offset = 3;
+    else if (dayName === 'Thursday') offset = 4;
+    else if (dayName === 'Friday') offset = 5;
+    else if (dayName === 'Saturday') offset = 6;
+    else if (dayName === 'Sunday') offset = 7; // Sunday at the end of the week
+    
+    start.setDate(start.getDate() + offset);
+    return start;
+  };
+
+  const formatDateLabel = (dayName, formatType) => {
+    const d = getDayDate(dayName);
+    const month = d.toLocaleDateString('en-US', { month: 'long' }); // e.g. "May"
+    const monthShort = d.toLocaleDateString('en-US', { month: 'short' }); // e.g. "May"
+    const dateNum = d.getDate();
+    
+    if (formatType === 'weekend') {
+      return `${dayName}, ${month} ${dateNum}`; // Saturday, May 30
+    } else if (formatType === 'dinner') {
+      return `${dayName} (${monthShort} ${dateNum}) Dinner`; // Monday (May 25) Dinner
+    }
+    return dayName;
+  };
 
   const renderPlannerSlot = (day, slotId, customLabel = null) => {
     const key = `${day}-${slotId}`;
@@ -1301,11 +1347,12 @@ export default function App() {
           {/* Weekday Routine Card */}
           <div className="card card-primary" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-              <h3 style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>Weekday Routine ☕️</h3>
+              <h3 style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>Weekday Routine 🍱</h3>
               <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>Mon – Fri Same Plan</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {renderPlannerSlot('Weekday', 'breakfast')}
+              {renderPlannerSlot('Weekday', 'breakfast-kyle')}
+              {renderPlannerSlot('Weekday', 'breakfast-ariel')}
               {renderPlannerSlot('Weekday', 'lunch')}
               {renderPlannerSlot('Weekday', 'snack')}
             </div>
@@ -1318,7 +1365,7 @@ export default function App() {
               <span className="badge badge-yellow" style={{ fontSize: '0.7rem' }}>Daily Selection</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {days.map(day => renderPlannerSlot(day, 'dinner', `${day} Dinner`))}
+              {days.map(day => renderPlannerSlot(day, 'dinner', formatDateLabel(day, 'dinner')))}
             </div>
           </div>
 
@@ -1332,9 +1379,12 @@ export default function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {/* Saturday Section */}
               <div>
-                <h4 style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '0.95rem', marginBottom: '8px', borderBottom: '1px dashed var(--border)', paddingBottom: '4px' }}>Saturday</h4>
+                <h4 style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '0.95rem', marginBottom: '8px', borderBottom: '1px dashed var(--border)', paddingBottom: '4px' }}>
+                  {formatDateLabel('Saturday', 'weekend')}
+                </h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {renderPlannerSlot('Saturday', 'breakfast')}
+                  {renderPlannerSlot('Saturday', 'breakfast-kyle')}
+                  {renderPlannerSlot('Saturday', 'breakfast-ariel')}
                   {renderPlannerSlot('Saturday', 'lunch')}
                   {renderPlannerSlot('Saturday', 'snack')}
                   {renderPlannerSlot('Saturday', 'dinner', 'Saturday Dinner')}
@@ -1343,9 +1393,12 @@ export default function App() {
 
               {/* Sunday Section */}
               <div>
-                <h4 style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '0.95rem', marginBottom: '8px', borderBottom: '1px dashed var(--border)', paddingBottom: '4px' }}>Sunday</h4>
+                <h4 style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '0.95rem', marginBottom: '8px', borderBottom: '1px dashed var(--border)', paddingBottom: '4px' }}>
+                  {formatDateLabel('Sunday', 'weekend')}
+                </h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {renderPlannerSlot('Sunday', 'breakfast')}
+                  {renderPlannerSlot('Sunday', 'breakfast-kyle')}
+                  {renderPlannerSlot('Sunday', 'breakfast-ariel')}
                   {renderPlannerSlot('Sunday', 'lunch')}
                   {renderPlannerSlot('Sunday', 'snack')}
                   {renderPlannerSlot('Sunday', 'dinner', 'Sunday Dinner')}
