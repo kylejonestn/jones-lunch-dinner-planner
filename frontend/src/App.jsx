@@ -56,6 +56,9 @@ function getSundayOfCurrentWeek(d = new Date()) {
   return sunday;
 }
 
+// Strictly sequential API request queue to prevent Workflowy 429 Rate Limits
+let requestQueue = Promise.resolve();
+
 export default function App() {
   // --- STATE ---
   const [proxyUrl, setProxyUrl] = useState(() => {
@@ -242,24 +245,32 @@ export default function App() {
   async function callWorkflowy(action, body) {
     const token = apiKey.trim();
 
-    try {
-      const cleanProxyUrl = proxyUrl.trim().replace(/\/+$/, '');
-      const response = await fetch(`${cleanProxyUrl}/api/workflowy/${action}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(body)
-      });
-      if (!response.ok) {
-        throw new Error(`Workflowy returned status ${response.status}`);
-      }
-      return await response.json();
-    } catch (e) {
-      console.error(`[Workflowy API error]`, e);
-      throw e;
-    }
+    return new Promise((resolve, reject) => {
+      requestQueue = requestQueue
+        .then(async () => {
+          // Enforce 200ms spacing between any consecutive requests
+          await new Promise(r => setTimeout(r, 200));
+          const cleanProxyUrl = proxyUrl.trim().replace(/\/+$/, '');
+          const response = await fetch(`${cleanProxyUrl}/api/workflowy/${action}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(body)
+          });
+          if (!response.ok) {
+            throw new Error(`Workflowy returned status ${response.status}`);
+          }
+          const data = await response.json();
+          resolve(data);
+        })
+        .catch((err) => {
+          reject(err);
+          // Return a resolved value to keep the queue healthy and unblocked for subsequent requests
+          return null;
+        });
+    });
   }
 
   // Find the primary node "Meal Planning🍴" and index its contents
@@ -1252,7 +1263,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.0.5 • Built on May 30, 2026 at 9:35 AM CT
+        v1.0.6 • Built on May 30, 2026 at 9:40 AM CT
       </footer>
     </div>
   );
