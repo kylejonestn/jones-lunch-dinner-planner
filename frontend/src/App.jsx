@@ -1889,54 +1889,6 @@ export default function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {days.map(day => renderPlannerSlot(day, 'dinner', formatDateLabel(day, 'dinner')))}
             </div>
-            
-            {/* Calendar & Sync Actions */}
-            <div style={{ 
-              display: 'flex', 
-              gap: '12px', 
-              marginTop: '4px', 
-              paddingTop: '12px', 
-              borderTop: '1px dashed var(--border)',
-              flexWrap: 'wrap'
-            }}>
-              <button 
-                className="btn btn-outline" 
-                style={{ 
-                  flex: 1, 
-                  minWidth: '160px',
-                  minHeight: '38px', 
-                  fontSize: '0.85rem', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center', 
-                  gap: '8px',
-                  background: googleAccessToken ? '#ecfdf5' : 'white',
-                  borderColor: googleAccessToken ? '#10b981' : 'var(--border)',
-                  color: googleAccessToken ? '#047857' : 'var(--text-main)'
-                }}
-                onClick={googleAccessToken ? syncDinnersToGoogleCalendar : handleAuthorize}
-              >
-                <Calendar size={16} /> 
-                {googleAccessToken ? 'Sync to Google 📅' : 'Connect Google 📅'}
-              </button>
-              <button 
-                className="btn btn-outline" 
-                style={{ 
-                  flex: 1, 
-                  minWidth: '160px',
-                  minHeight: '38px', 
-                  fontSize: '0.85rem', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center', 
-                  gap: '8px' 
-                }}
-                onClick={exportWeekToICS}
-              >
-                <Share2 size={16} /> 
-                Export to ICS 📤
-              </button>
-            </div>
           </div>
 
           {/* Weekend Routine Card */}
@@ -1977,11 +1929,11 @@ export default function App() {
             </div>
           </div>
 
-          {/* Sticky Bottom Writeback bar */}
+          {/* Sticky Bottom Share bar */}
           <div className="bottom-tray">
-            <button className="btn btn-primary" onClick={writeBackToWorkflowy} disabled={isLoading}>
-              <Plus size={20} />
-              Save Week to Workflowy
+            <button className="btn btn-primary" onClick={() => setActiveTab('share')}>
+              <Share2 size={20} />
+              Share Meal Plan 📤
             </button>
           </div>
 
@@ -2058,6 +2010,62 @@ export default function App() {
               <button className="btn btn-secondary" onClick={() => copyToClipboard(shareableText)} style={{ flex: 1 }}>
                 <MessageSquare size={18} />
                 Copy Text Message
+              </button>
+            </div>
+          </div>
+
+          {/* Calendar Sync & Export Card */}
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px 16px' }}>
+            <div style={{ fontWeight: 800, color: 'var(--primary-dark)', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>📅 Add Dinners to Calendar</span>
+              {!googleClientId && <span className="badge" style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#f3f4f6', color: '#6b7280', textTransform: 'none' }}>Zero-Config Active</span>}
+            </div>
+            
+            <div style={{ 
+              display: 'flex', 
+              gap: '10px', 
+              flexWrap: 'wrap'
+            }}>
+              <button 
+                className="btn btn-outline" 
+                style={{ 
+                  flex: 1, 
+                  minWidth: '160px',
+                  minHeight: '38px', 
+                  fontSize: '0.85rem', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  gap: '8px',
+                  background: !googleClientId ? '#f5f5f4' : (googleAccessToken ? '#ecfdf5' : 'white'),
+                  borderColor: !googleClientId ? '#e5e7eb' : (googleAccessToken ? '#10b981' : 'var(--border)'),
+                  color: !googleClientId ? '#a8a29e' : (googleAccessToken ? '#047857' : 'var(--text-main)'),
+                  cursor: !googleClientId ? 'not-allowed' : 'pointer',
+                  opacity: !googleClientId ? 0.7 : 1
+                }}
+                onClick={googleAccessToken ? syncDinnersToGoogleCalendar : handleAuthorize}
+                disabled={!googleClientId}
+                title={!googleClientId ? 'Configure Google Client ID in Config to enable direct sync' : ''}
+              >
+                <Calendar size={16} /> 
+                {googleAccessToken ? 'Sync to Google 📅' : 'Connect Google 📅'}
+              </button>
+              <button 
+                className="btn btn-outline" 
+                style={{ 
+                  flex: 1, 
+                  minWidth: '160px',
+                  minHeight: '38px', 
+                  fontSize: '0.85rem', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  gap: '8px' 
+                }}
+                onClick={exportWeekToICS}
+              >
+                <Share2 size={16} /> 
+                Export to ICS 📤
               </button>
             </div>
           </div>
@@ -2610,7 +2618,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.5.0 • Built on May 30, 2026 at 2:40 PM CT
+        v1.5.1 • Built on May 30, 2026 at 2:58 PM CT
       </footer>
     </div>
   );
