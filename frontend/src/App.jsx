@@ -1191,6 +1191,18 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* Version Footer */}
+      <footer style={{
+        textAlign: 'center',
+        marginTop: '32px',
+        paddingTop: '16px',
+        borderTop: '1px solid var(--border)',
+        fontSize: '0.75rem',
+        color: 'var(--text-muted)',
+        opacity: 0.8
+      }}>
+        v1.0.1 • Built on May 29, 2026 at 10:14 PM CT
+      </footer>
     </div>
   );
 }
