@@ -1,0 +1,349 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+  /* Fresh Kitchen HelloFresh Color Palette */
+  --primary: #10b981; /* Herb Green */
+  --primary-dark: #047857; /* Deep Mint */
+  --primary-light: #d1fae5; /* Sage Wash */
+  --secondary: #fbbf24; /* Sunny Yellow */
+  --secondary-dark: #d97706; /* Warm Amber */
+  --secondary-light: #fef3c7; /* Lemon Cream */
+  --bg-app: #f5f5f4; /* Cozy warm stone background */
+  --bg-card: #ffffff;
+  --text-main: #1c1917; /* Slate Stone */
+  --text-muted: #6b7280;
+  --border: #e7e5e4;
+  --danger: #ef4444;
+  --success: #10b981;
+
+  /* Fonts & Radius */
+  --font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(28, 25, 23, 0.04);
+  --shadow-md: 0 10px 20px rgba(28, 25, 23, 0.06);
+  --shadow-lg: 0 20px 40px rgba(28, 25, 23, 0.1);
+  --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+/* Typography scale */
+h1 {
+  font-size: 1.8rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: var(--primary-dark);
+}
+
+h2 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+p {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+button {
+  font-family: var(--font-family);
+  border: none;
+  background: none;
+  cursor: pointer;
+  outline: none;
+}
+
+/* Layout Utilities */
+.container {
+  width: 100%;
+  max-width: 480px; /* Locked to standard mobile phone width */
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding-bottom: 96px; /* Space for sticky actions bottom */
+}
+
+/* Glassmorphism Cards */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+  transition: var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.card-primary {
+  border-left: 5px solid var(--primary);
+}
+
+.card-secondary {
+  border-left: 5px solid var(--secondary);
+}
+
+/* Sticky Bottom Action Tray */
+.bottom-tray {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid var(--border);
+  padding: 12px 20px 24px 20px;
+  display: flex;
+  gap: 12px;
+  max-width: 480px;
+  margin: 0 auto;
+  z-index: 100;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.05);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 20px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  transition: var(--transition);
+  width: 100%;
+  min-height: 48px; /* Safe touch target */
+}
+
+.btn-primary {
+  background-color: var(--primary);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: var(--primary-dark);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn-secondary {
+  background-color: var(--secondary-light);
+  color: var(--secondary-dark);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: var(--secondary);
+  color: var(--text-main);
+}
+
+.btn-outline {
+  background: white;
+  border: 1px solid var(--border);
+  color: var(--text-main);
+}
+
+.btn-outline:hover {
+  background-color: var(--bg-app);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Form Elements */
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.input-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--primary-dark);
+}
+
+.input-text {
+  width: 100%;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-family);
+  font-size: 1rem;
+  transition: var(--transition);
+  background-color: #fafaf9;
+}
+
+.input-text:focus {
+  border-color: var(--primary);
+  background-color: white;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+  outline: none;
+}
+
+/* Weekly Slot Machine Elements */
+.slot-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fafaf9;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  transition: var(--transition);
+}
+
+.slot-container.locked {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+.slot-info {
+  flex: 1;
+  overflow: hidden;
+}
+
+.slot-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+/* Spinning Slot Machine Effect */
+.slot-value {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.slot-value.rolling {
+  animation: roll-slot 0.6s cubic-bezier(0.15, 0.85, 0.35, 1) forwards;
+}
+
+@keyframes roll-slot {
+  0% {
+    transform: translateY(-20px);
+    opacity: 0;
+    filter: blur(2px);
+  }
+  30% {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  60% {
+    transform: translateY(-10px);
+    opacity: 0.5;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+/* Spin animation for icons */
+.spin-icon {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Emojis & Badges */
+.badge {
+  display: inline-flex;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-radius: 9999px;
+  text-transform: uppercase;
+}
+
+.badge-green {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.badge-yellow {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-app);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
