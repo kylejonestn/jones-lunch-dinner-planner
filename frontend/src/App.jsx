@@ -245,7 +245,8 @@ export default function App() {
     }
 
     try {
-      const response = await fetch(`${proxyUrl}/api/workflowy/${action}`, {
+      const cleanProxyUrl = proxyUrl.trim().replace(/\/+$/, '');
+      const response = await fetch(`${cleanProxyUrl}/api/workflowy/${action}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

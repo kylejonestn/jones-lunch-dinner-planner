@@ -10,11 +10,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Enable CORS for our frontend development environment
-app.use(cors({
-  origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000'],
-  credentials: true
-}));
+// Enable CORS for all incoming client requests (local + GitHub Pages)
+app.use(cors());
 
 // Parse JSON request bodies
 app.use(express.json());
