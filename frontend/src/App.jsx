@@ -104,6 +104,13 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [syncMessage, setSyncMessage] = useState(null);
   
+  // Google Calendar States
+  const [googleClientId, setGoogleClientId] = useState(() => localStorage.getItem('wf_google_client_id') || '');
+  const [googleAccessToken, setGoogleAccessToken] = useState('');
+  const [googleCalendars, setGoogleCalendars] = useState([]);
+  const [selectedCalendarId, setSelectedCalendarId] = useState(() => localStorage.getItem('wf_google_selected_calendar_id') || 'primary');
+  const [dinnerTime, setDinnerTime] = useState(() => localStorage.getItem('wf_dinner_time') || '18:00');
+
   // Mapping of Workflowy outline UUIDs once explored
   const [nodeMappings, setNodeMappings] = useState(() => {
     try {
@@ -206,7 +213,277 @@ export default function App() {
     localStorage.setItem('wf_weekly_menu', JSON.stringify(weeklyMenu));
     localStorage.setItem('wf_locked_slots', JSON.stringify(lockedSlots));
     localStorage.setItem('wf_proxy_url', proxyUrl);
-  }, [apiKey, customFolderId, weeklyPlanFolder, rootNodeId, nodeMappings, recipes, ingredientCache, detailsCache, workflowyGroceries, weeklyMenu, lockedSlots, proxyUrl]);
+    localStorage.setItem('wf_google_client_id', googleClientId);
+    localStorage.setItem('wf_google_selected_calendar_id', selectedCalendarId);
+    localStorage.setItem('wf_dinner_time', dinnerTime);
+  }, [apiKey, customFolderId, weeklyPlanFolder, rootNodeId, nodeMappings, recipes, ingredientCache, detailsCache, workflowyGroceries, weeklyMenu, lockedSlots, proxyUrl, googleClientId, selectedCalendarId, dinnerTime]);
+
+  // Load Google Identity Services SDK dynamically
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    document.body.appendChild(script);
+    
+    return () => {
+      const existingScript = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+      if (existingScript) {
+        document.body.removeChild(existingScript);
+      }
+    };
+  }, []);
+
+  // Fetch Google Calendars once we have an access token
+  useEffect(() => {
+    if (googleAccessToken) {
+      fetchCalendars(googleAccessToken);
+    }
+  }, [googleAccessToken]);
+
+  const handleAuthorize = () => {
+    if (!googleClientId) {
+      alert('Please enter your Google OAuth Client ID first inside the Config tab!');
+      setActiveTab('settings');
+      return;
+    }
+    
+    try {
+      if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) {
+        alert('Google Identity Services SDK is still loading. Please try again in a few seconds.');
+        return;
+      }
+      
+      const client = window.google.accounts.oauth2.initTokenClient({
+        client_id: googleClientId,
+        scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly',
+        callback: (response) => {
+          if (response.error) {
+            console.error('Google Auth error:', response);
+            alert(`Auth failed: ${response.error_description || response.error}`);
+            return;
+          }
+          if (response.access_token) {
+            setGoogleAccessToken(response.access_token);
+            setSyncMessage({ type: 'success', text: 'Connected to Google Calendar successfully!' });
+            setTimeout(() => setSyncMessage(null), 3000);
+          }
+        },
+      });
+      client.requestAccessToken();
+    } catch (err) {
+      console.error('OAuth initialization failed:', err);
+      alert(`OAuth failed: ${err.message}`);
+    }
+  };
+
+  const fetchCalendars = async (token) => {
+    setIsLoading(true);
+    try {
+      const res = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || 'Failed to fetch calendars');
+      }
+      
+      const data = await res.json();
+      const items = data.items || [];
+      setGoogleCalendars(items);
+      
+      // Auto-select primary or first calendar
+      if (!selectedCalendarId || !items.find(c => c.id === selectedCalendarId)) {
+        const primaryCal = items.find(c => c.primary) || items[0];
+        if (primaryCal) {
+          setSelectedCalendarId(primaryCal.id);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching calendars:', err);
+      setSyncMessage({ type: 'error', text: `Failed to fetch calendars: ${err.message}` });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const formatICSDate = (date) => {
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    const hours = String(date.getUTCHours()).padStart(2, '0');
+    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+    const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+    return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
+  };
+
+  const exportWeekToICS = () => {
+    try {
+      const [hours, minutes] = dinnerTime.split(':').map(Number);
+      const timestamp = formatICSDate(new Date());
+      let icsContent = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//Fresh Kitchen Planner//EN',
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH'
+      ];
+      
+      let addedEvents = 0;
+      
+      for (const day of days) {
+        const mealKey = `${day}-dinner`;
+        const meal = weeklyMenu[mealKey];
+        if (!meal || !meal.name || meal.name.includes('Choose')) {
+          continue;
+        }
+        
+        const d = getDayDate(day);
+        const startEventDate = new Date(d);
+        startEventDate.setHours(hours, minutes, 0, 0);
+        
+        const endEventDate = new Date(startEventDate);
+        endEventDate.setHours(startEventDate.getHours() + 1);
+        
+        const cleanMealName = cleanText(meal.name);
+        const hasWorkflowyId = meal.id && !meal.id.startsWith('seed-') && !meal.id.startsWith('rolled-') && !meal.id.startsWith('manual-');
+        const wfLink = hasWorkflowyId ? `https://workflowy.com/#/${meal.id}` : '';
+        
+        const uid = `dinner-${day}-${selectedSunday}-${startEventDate.getTime()}@freshkitchenplanner.com`;
+        
+        let descParts = [
+          `Scheduled Dinner: ${cleanMealName}`,
+          wfLink ? `Workflowy Recipe Link: ${wfLink}` : '',
+          `Generated by Fresh Kitchen Planner 🍴`
+        ].filter(Boolean);
+        
+        const descEscaped = descParts.join('\\n\\n');
+        
+        icsContent.push('BEGIN:VEVENT');
+        icsContent.push(`UID:${uid}`);
+        icsContent.push(`DTSTAMP:${timestamp}`);
+        icsContent.push(`DTSTART:${formatICSDate(startEventDate)}`);
+        icsContent.push(`DTEND:${formatICSDate(endEventDate)}`);
+        icsContent.push(`SUMMARY:🍲 Dinner: ${cleanMealName}`);
+        icsContent.push(`DESCRIPTION:${descEscaped}`);
+        icsContent.push('END:VEVENT');
+        
+        addedEvents++;
+      }
+      
+      if (addedEvents === 0) {
+        alert('No dinners have been scheduled for this week yet. Go schedule dinners in your planner!');
+        return;
+      }
+      
+      icsContent.push('END:VCALENDAR');
+      
+      const icsString = icsContent.join('\r\n');
+      const blob = new Blob([icsString], { type: 'text/calendar;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `dinners-week-of-${selectedSunday}.ics`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      setSyncMessage({ 
+        type: 'success', 
+        text: `Exported ${addedEvents} dinners to .ics file successfully!` 
+      });
+      setTimeout(() => setSyncMessage(null), 4000);
+    } catch (err) {
+      console.error('Error exporting ICS:', err);
+      alert(`Export failed: ${err.message}`);
+    }
+  };
+
+  const syncDinnersToGoogleCalendar = async () => {
+    if (!googleAccessToken) {
+      alert('Please connect to Google Calendar first inside the Config tab!');
+      setActiveTab('settings');
+      return;
+    }
+    
+    setIsLoading(true);
+    setSyncMessage({ type: 'success', text: 'Syncing dinners to Google Calendar...' });
+    
+    try {
+      const [hours, minutes] = dinnerTime.split(':').map(Number);
+      let successCount = 0;
+      
+      for (const day of days) {
+        const mealKey = `${day}-dinner`;
+        const meal = weeklyMenu[mealKey];
+        if (!meal || !meal.name || meal.name.includes('Choose')) {
+          continue;
+        }
+        
+        const d = getDayDate(day);
+        const startEventDate = new Date(d);
+        startEventDate.setHours(hours, minutes, 0, 0);
+        
+        const endEventDate = new Date(startEventDate);
+        endEventDate.setHours(startEventDate.getHours() + 1);
+        
+        const cleanMealName = cleanText(meal.name);
+        const hasWorkflowyId = meal.id && !meal.id.startsWith('seed-') && !meal.id.startsWith('rolled-') && !meal.id.startsWith('manual-');
+        const wfLink = hasWorkflowyId ? `https://workflowy.com/#/${meal.id}` : '';
+        
+        const description = [
+          `Scheduled Dinner: ${cleanMealName}`,
+          wfLink ? `Workflowy Recipe Link: ${wfLink}` : '',
+          `Generated by Fresh Kitchen Planner 🍴`
+        ].filter(Boolean).join('\n\n');
+        
+        const eventBody = {
+          summary: `🍲 Dinner: ${cleanMealName}`,
+          description: description,
+          start: {
+            dateTime: startEventDate.toISOString()
+          },
+          end: {
+            dateTime: endEventDate.toISOString()
+          }
+        };
+        
+        const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(selectedCalendarId)}/events`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${googleAccessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(eventBody)
+        });
+        
+        if (res.ok) {
+          successCount++;
+        } else {
+          const err = await res.json();
+          console.error(`Failed to add dinner for ${day}:`, err);
+        }
+      }
+      
+      setSyncMessage({ 
+        type: 'success', 
+        text: `Successfully synced ${successCount} dinner events to your calendar!` 
+      });
+      setTimeout(() => setSyncMessage(null), 5000);
+    } catch (err) {
+      console.error('Error syncing to Google Calendar:', err);
+      setSyncMessage({ 
+        type: 'error', 
+        text: `Failed to sync dinners: ${err.message}` 
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Current date formatted beautifully
   const currentWeekLabel = useMemo(() => {
@@ -1367,6 +1644,54 @@ export default function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {days.map(day => renderPlannerSlot(day, 'dinner', formatDateLabel(day, 'dinner')))}
             </div>
+            
+            {/* Calendar & Sync Actions */}
+            <div style={{ 
+              display: 'flex', 
+              gap: '12px', 
+              marginTop: '4px', 
+              paddingTop: '12px', 
+              borderTop: '1px dashed var(--border)',
+              flexWrap: 'wrap'
+            }}>
+              <button 
+                className="btn btn-outline" 
+                style={{ 
+                  flex: 1, 
+                  minWidth: '160px',
+                  minHeight: '38px', 
+                  fontSize: '0.85rem', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  gap: '8px',
+                  background: googleAccessToken ? '#ecfdf5' : 'white',
+                  borderColor: googleAccessToken ? '#10b981' : 'var(--border)',
+                  color: googleAccessToken ? '#047857' : 'var(--text-main)'
+                }}
+                onClick={googleAccessToken ? syncDinnersToGoogleCalendar : handleAuthorize}
+              >
+                <Calendar size={16} /> 
+                {googleAccessToken ? 'Sync to Google 📅' : 'Connect Google 📅'}
+              </button>
+              <button 
+                className="btn btn-outline" 
+                style={{ 
+                  flex: 1, 
+                  minWidth: '160px',
+                  minHeight: '38px', 
+                  fontSize: '0.85rem', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  gap: '8px' 
+                }}
+                onClick={exportWeekToICS}
+              >
+                <Share2 size={16} /> 
+                Export to ICS 📤
+              </button>
+            </div>
           </div>
 
           {/* Weekend Routine Card */}
@@ -1650,6 +1975,115 @@ export default function App() {
               <LogOut size={16} /> Disconnect Workflowy Account
             </button>
           </div>
+
+          {/* Card: Calendar Integration */}
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
+              <h2 style={{ color: 'var(--primary-dark)', margin: 0 }}>Calendar Integration 📅</h2>
+              <span className="badge badge-green" style={{ fontSize: '0.75rem' }}>Google & ICS Sync</span>
+            </div>
+
+            {/* Client ID Input */}
+            <div className="input-group">
+              <label className="input-label">Google OAuth Client ID</label>
+              <input 
+                type="text" 
+                className="input-text" 
+                value={googleClientId} 
+                onChange={(e) => setGoogleClientId(e.target.value)} 
+                placeholder="e.g. 123456789-abcdef.apps.googleusercontent.com"
+              />
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Create a Client ID inside your Google Cloud Console. Make sure to whitelist your local and production URLs in Authorized JavaScript Origins!
+              </p>
+            </div>
+
+            {/* Dinner Event Time */}
+            <div className="input-group">
+              <label className="input-label">Configured Dinner Time</label>
+              <input 
+                type="time" 
+                className="input-text" 
+                value={dinnerTime} 
+                onChange={(e) => setDinnerTime(e.target.value)} 
+              />
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Dinners will be scheduled at this time on their respective calendar dates (1 hour duration).
+              </p>
+            </div>
+
+            {/* Auth Connection Status & Controls */}
+            <div style={{ padding: '14px', background: '#fafaf9', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ fontWeight: 700, color: 'var(--primary-dark)', fontSize: '0.9rem' }}>
+                Status: {googleAccessToken ? <span style={{ color: '#047857' }}>Connected 🟢</span> : <span style={{ color: 'var(--text-muted)' }}>Disconnected 🔴</span>}
+              </div>
+
+              {googleAccessToken && (
+                <>
+                  <div className="input-group" style={{ margin: 0 }}>
+                    <label className="input-label">Select Calendar Target</label>
+                    <select 
+                      className="input-text"
+                      value={selectedCalendarId}
+                      onChange={(e) => setSelectedCalendarId(e.target.value)}
+                      style={{ padding: '8px 12px', background: 'white' }}
+                    >
+                      {googleCalendars.length === 0 ? (
+                        <option value={selectedCalendarId}>Loading calendars...</option>
+                      ) : (
+                        googleCalendars.map(cal => (
+                          <option key={cal.id} value={cal.id}>
+                            {cal.summary} {cal.primary ? '(Primary)' : ''}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      Choose your secondary calendar (e.g. <b>"Family"</b>) to avoid cluttering your personal agenda!
+                    </p>
+                  </div>
+
+                  <button 
+                    className="btn btn-outline" 
+                    onClick={() => {
+                      setGoogleAccessToken('');
+                      setGoogleCalendars([]);
+                    }}
+                    style={{ width: '100%' }}
+                  >
+                    Disconnect Google Calendar
+                  </button>
+                </>
+              )}
+
+              {!googleAccessToken && (
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleAuthorize}
+                  style={{ width: '100%' }}
+                >
+                  Connect & Authenticate with Google
+                </button>
+              )}
+            </div>
+
+            {/* Clear and Simple Instructions */}
+            <div style={{ padding: '14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 'var(--radius-md)', fontSize: '0.8rem', color: '#166534', lineHeight: '1.4' }}>
+              <div style={{ fontWeight: 700, marginBottom: '6px', color: '#14532d' }}>How to get a Google Client ID in 2 minutes:</div>
+              <ol style={{ paddingLeft: '16px', margin: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <li>Open the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" style={{ fontWeight: 700, textDecoration: 'underline', color: '#15803d' }}>Google Cloud Credentials page ➔</a></li>
+                <li>Create or select a project, then go to <b>Credentials</b>.</li>
+                <li>Click <b>Create Credentials</b> → <b>OAuth client ID</b>. Choose Application type: <b>Web application</b>.</li>
+                <li>Under <b>Authorized JavaScript Origins</b>, add these URIs:
+                  <ul style={{ paddingLeft: '14px', listStyleType: 'disc', display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '2px' }}>
+                    <li><code>http://localhost:5173</code> (for development)</li>
+                    <li><code>https://kylejonestn.github.io</code> (for GitHub Pages)</li>
+                  </ul>
+                </li>
+                <li>Click Save, copy the <b>Client ID</b>, and paste it into the field above!</li>
+              </ol>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1877,7 +2311,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.2.1 • Built on May 30, 2026 at 10:35 AM CT
+        v1.4.0 • Built on May 30, 2026 at 2:30 PM CT
       </footer>
     </div>
   );
