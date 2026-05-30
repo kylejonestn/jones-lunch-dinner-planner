@@ -169,6 +169,13 @@ export default function App() {
   // Selected date range (weeks start on Sunday)
   const [selectedSunday, setSelectedSunday] = useState(() => {
     const defaultSun = getSundayOfCurrentWeek();
+    
+    // If today is Thursday (4), Friday (5), or Saturday (6), auto-advance to next week on startup
+    const currentDay = new Date().getDay();
+    if (currentDay >= 4) {
+      defaultSun.setDate(defaultSun.getDate() + 7);
+    }
+    
     return defaultSun.toISOString().split('T')[0];
   });
 
@@ -2615,7 +2622,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.5.2 • Built on May 30, 2026 at 3:05 PM CT
+        v1.5.3 • Built on May 30, 2026 at 3:08 PM CT
       </footer>
     </div>
   );
