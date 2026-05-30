@@ -180,27 +180,13 @@ export default function App() {
     return defaultFri.toISOString().split('T')[0];
   });
 
-  // Master cache for all weeks' menus and locks
-  const [allWeeksMenu, setAllWeeksMenu] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('wf_all_weeks_menu')) || {};
-    } catch {
-      return {};
-    }
-  });
-
-  const [allWeeksLocked, setAllWeeksLocked] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('wf_all_weeks_locked')) || {};
-    } catch {
-      return {};
-    }
-  });
-
   // Active weekly menu planner grid state
-  // Key format: "Monday-dinner", value is a recipe object
+  // Key format: "YYYY-MM-DD-Monday-dinner", value is a recipe object
   const [weeklyMenu, setWeeklyMenu] = useState(() => {
     try {
+      const legacy = JSON.parse(localStorage.getItem('wf_weekly_menu')) || {};
+      const converted = {};
+      
       const defaultFri = getFridayOfCurrentWeek();
       const currentDay = new Date().getDay();
       if (currentDay === 4) {
@@ -208,12 +194,14 @@ export default function App() {
       }
       const startupFri = defaultFri.toISOString().split('T')[0];
       
-      const allMenu = JSON.parse(localStorage.getItem('wf_all_weeks_menu')) || {};
-      if (Object.keys(allMenu).length === 0) {
-        const legacy = JSON.parse(localStorage.getItem('wf_weekly_menu')) || {};
-        return legacy;
-      }
-      return allMenu[startupFri] || {};
+      Object.entries(legacy).forEach(([k, v]) => {
+        if (k.match(/^\d{4}-\d{2}-\d{2}-/)) {
+          converted[k] = v;
+        } else {
+          converted[`${startupFri}-${k}`] = v;
+        }
+      });
+      return converted;
     } catch {
       return {};
     }
@@ -222,6 +210,9 @@ export default function App() {
   // Locked state for slots (to avoid rolls)
   const [lockedSlots, setLockedSlots] = useState(() => {
     try {
+      const legacy = JSON.parse(localStorage.getItem('wf_locked_slots')) || {};
+      const converted = {};
+      
       const defaultFri = getFridayOfCurrentWeek();
       const currentDay = new Date().getDay();
       if (currentDay === 4) {
@@ -229,16 +220,41 @@ export default function App() {
       }
       const startupFri = defaultFri.toISOString().split('T')[0];
       
-      const allLocked = JSON.parse(localStorage.getItem('wf_all_weeks_locked')) || {};
-      if (Object.keys(allLocked).length === 0) {
-        const legacy = JSON.parse(localStorage.getItem('wf_locked_slots')) || {};
-        return legacy;
-      }
-      return allLocked[startupFri] || {};
+      Object.entries(legacy).forEach(([k, v]) => {
+        if (k.match(/^\d{4}-\d{2}-\d{2}-/)) {
+          converted[k] = v;
+        } else {
+          converted[`${startupFri}-${k}`] = v;
+        }
+      });
+      return converted;
     } catch {
       return {};
     }
   });
+
+  // Memoized selector for the active week's selections & locks (stripped of the date prefix)
+  const activeWeeklyMenu = useMemo(() => {
+    const filtered = {};
+    Object.entries(weeklyMenu).forEach(([k, v]) => {
+      if (k.startsWith(`${selectedFriday}-`)) {
+        const cleanKey = k.replace(`${selectedFriday}-`, '');
+        filtered[cleanKey] = v;
+      }
+    });
+    return filtered;
+  }, [weeklyMenu, selectedFriday]);
+
+  const activeLockedSlots = useMemo(() => {
+    const filtered = {};
+    Object.entries(lockedSlots).forEach(([k, v]) => {
+      if (k.startsWith(`${selectedFriday}-`)) {
+        const cleanKey = k.replace(`${selectedFriday}-`, '');
+        filtered[cleanKey] = v;
+      }
+    });
+    return filtered;
+  }, [lockedSlots, selectedFriday]);
 
   // Interactive UI state
   const [rollingSlots, setRollingSlots] = useState({});
@@ -263,42 +279,11 @@ export default function App() {
     localStorage.setItem('wf_workflowy_groceries', JSON.stringify(workflowyGroceries));
     localStorage.setItem('wf_weekly_menu', JSON.stringify(weeklyMenu));
     localStorage.setItem('wf_locked_slots', JSON.stringify(lockedSlots));
-    localStorage.setItem('wf_all_weeks_menu', JSON.stringify(allWeeksMenu));
-    localStorage.setItem('wf_all_weeks_locked', JSON.stringify(allWeeksLocked));
     localStorage.setItem('wf_proxy_url', proxyUrl);
     localStorage.setItem('wf_google_client_id', googleClientId);
     localStorage.setItem('wf_google_selected_calendar_id', selectedCalendarId);
     localStorage.setItem('wf_dinner_time', dinnerTime);
-  }, [apiKey, customFolderId, weeklyPlanFolder, rootNodeId, nodeMappings, recipes, ingredientCache, detailsCache, workflowyGroceries, weeklyMenu, lockedSlots, allWeeksMenu, allWeeksLocked, proxyUrl, googleClientId, selectedCalendarId, dinnerTime]);
-
-  // Sync changes in weeklyMenu or lockedSlots back to the master weeks cache
-  useEffect(() => {
-    if (Object.keys(weeklyMenu).length === 0) return;
-    
-    setAllWeeksMenu(prev => {
-      const existing = prev[selectedFriday] || {};
-      const prevNames = Object.entries(existing).map(([k, v]) => `${k}:${v?.name}`).join(',');
-      const newNames = Object.entries(weeklyMenu).map(([k, v]) => `${k}:${v?.name}`).join(',');
-      if (prevNames === newNames) return prev;
-      
-      const updated = { ...prev, [selectedFriday]: weeklyMenu };
-      return updated;
-    });
-  }, [weeklyMenu, selectedFriday]);
-
-  useEffect(() => {
-    if (Object.keys(lockedSlots).length === 0) return;
-    
-    setAllWeeksLocked(prev => {
-      const existing = prev[selectedFriday] || {};
-      const prevLock = Object.entries(existing).map(([k, v]) => `${k}:${v}`).join(',');
-      const newLock = Object.entries(lockedSlots).map(([k, v]) => `${k}:${v}`).join(',');
-      if (prevLock === newLock) return prev;
-      
-      const updated = { ...prev, [selectedFriday]: lockedSlots };
-      return updated;
-    });
-  }, [lockedSlots, selectedFriday]);
+  }, [apiKey, customFolderId, weeklyPlanFolder, rootNodeId, nodeMappings, recipes, ingredientCache, detailsCache, workflowyGroceries, weeklyMenu, lockedSlots, proxyUrl, googleClientId, selectedCalendarId, dinnerTime]);
 
   // Load Google Identity Services SDK dynamically
   useEffect(() => {
@@ -418,7 +403,7 @@ export default function App() {
       
       for (const day of days) {
         const mealKey = `${day}-dinner`;
-        const meal = weeklyMenu[mealKey];
+        const meal = activeWeeklyMenu[mealKey];
         if (!meal || !meal.name || meal.name.includes('Choose')) {
           continue;
         }
@@ -602,21 +587,33 @@ export default function App() {
       if (match && match.note) {
         const data = JSON.parse(match.note);
         if (data && data.weeklyMenu) {
-          setWeeklyMenu(prev => {
-            const prevNames = Object.entries(prev).map(([k, v]) => `${k}:${v?.name}`).join(',');
-            const newNames = Object.entries(data.weeklyMenu).map(([k, v]) => `${k}:${v?.name}`).join(',');
-            if (prevNames === newNames) return prev;
-            return { ...prev, ...data.weeklyMenu };
+          const prefixedMenu = {};
+          Object.entries(data.weeklyMenu).forEach(([k, v]) => {
+            const keyWithPrefix = k.startsWith(`${sundayDate}-`) ? k : `${sundayDate}-${k}`;
+            prefixedMenu[keyWithPrefix] = v;
           });
-          
+
+          const prefixedLocked = {};
           if (data.lockedSlots) {
-            setLockedSlots(prev => {
-              const prevLock = Object.entries(prev).map(([k, v]) => `${k}:${v}`).join(',');
-              const newLock = Object.entries(data.lockedSlots).map(([k, v]) => `${k}:${v}`).join(',');
-              if (prevLock === newLock) return prev;
-              return { ...prev, ...data.lockedSlots };
+            Object.entries(data.lockedSlots).forEach(([k, v]) => {
+              const keyWithPrefix = k.startsWith(`${sundayDate}-`) ? k : `${sundayDate}-${k}`;
+              prefixedLocked[keyWithPrefix] = v;
             });
           }
+
+          setWeeklyMenu(prev => {
+            const prevNames = Object.entries(prev).map(([k, v]) => `${k}:${v?.name}`).join(',');
+            const newNames = Object.entries(prefixedMenu).map(([k, v]) => `${k}:${v?.name}`).join(',');
+            if (prevNames === newNames) return prev;
+            return { ...prev, ...prefixedMenu };
+          });
+          
+          setLockedSlots(prev => {
+            const prevLock = Object.entries(prev).map(([k, v]) => `${k}:${v}`).join(',');
+            const newLock = Object.entries(prefixedLocked).map(([k, v]) => `${k}:${v}`).join(',');
+            if (prevLock === newLock) return prev;
+            return { ...prev, ...prefixedLocked };
+          });
         }
       }
       setCloudSyncState('saved');
@@ -641,7 +638,7 @@ export default function App() {
     }
     
     cloudSyncTimeoutRef.current = setTimeout(() => {
-      saveWeekToCloud(selectedFriday, weeklyMenu, lockedSlots);
+      saveWeekToCloud(selectedFriday, activeWeeklyMenu, activeLockedSlots);
     }, 3000);
     
     return () => {
@@ -649,7 +646,7 @@ export default function App() {
         clearTimeout(cloudSyncTimeoutRef.current);
       }
     };
-  }, [weeklyMenu, lockedSlots, selectedFriday, apiKey, rootNodeId]);
+  }, [activeWeeklyMenu, activeLockedSlots, selectedFriday, apiKey, rootNodeId]);
 
   // Load from cloud when week changes
   useEffect(() => {
@@ -674,7 +671,7 @@ export default function App() {
       
       for (const day of days) {
         const mealKey = `${day}-dinner`;
-        const meal = weeklyMenu[mealKey];
+        const meal = activeWeeklyMenu[mealKey];
         if (!meal || !meal.name || meal.name.includes('Choose')) {
           continue;
         }
@@ -773,12 +770,7 @@ export default function App() {
 
   // Initialize weekly grid based on spreadsheet rotations when date changes
   useEffect(() => {
-    // Load from cache first
-    const savedMenu = allWeeksMenu[selectedFriday] || {};
-    const savedLocked = allWeeksLocked[selectedFriday] || {};
-    
-    const newMenu = { ...savedMenu };
-    const newLocked = { ...savedLocked };
+    const newMenu = { ...weeklyMenu };
     let changed = false;
 
     // We fetch rotation baseline
@@ -786,7 +778,7 @@ export default function App() {
 
     days.forEach(day => {
       // 1. Breakfast (Kyle)
-      const bKyleKey = `${day}-breakfast-kyle`;
+      const bKyleKey = `${selectedFriday}-${day}-breakfast-kyle`;
       if (!newMenu[bKyleKey]) {
         if (day === 'Saturday') {
           newMenu[bKyleKey] = {
@@ -807,7 +799,7 @@ export default function App() {
       }
 
       // 2. Breakfast (Ariel)
-      const bArielKey = `${day}-breakfast-ariel`;
+      const bArielKey = `${selectedFriday}-${day}-breakfast-ariel`;
       if (!newMenu[bArielKey]) {
         newMenu[bArielKey] = {
           id: `seed-b-ariel-${rotation.breakfast.id}`,
@@ -819,7 +811,7 @@ export default function App() {
       }
 
       // 3. Lunch
-      const lKey = `${day}-lunch`;
+      const lKey = `${selectedFriday}-${day}-lunch`;
       if (!newMenu[lKey]) {
         newMenu[lKey] = {
           id: `seed-l-${rotation.lunch.id}`,
@@ -831,7 +823,7 @@ export default function App() {
       }
 
       // 4. Snack
-      const sKey = `${day}-snack`;
+      const sKey = `${selectedFriday}-${day}-snack`;
       if (!newMenu[sKey]) {
         newMenu[sKey] = {
           id: `seed-s-${rotation.snack.id}`,
@@ -843,7 +835,7 @@ export default function App() {
       }
 
       // 5. Dinner is left unselected or rolls on demand based on Option A
-      const dKey = `${day}-dinner`;
+      const dKey = `${selectedFriday}-${day}-dinner`;
       if (!newMenu[dKey]) {
         newMenu[dKey] = {
           id: '',
@@ -857,7 +849,7 @@ export default function App() {
 
     // Seeding & self-healing for unified Weekday slots
     ['breakfast-kyle', 'breakfast-ariel', 'lunch', 'snack'].forEach(slotId => {
-      const key = `Weekday-${slotId}`;
+      const key = `${selectedFriday}-Weekday-${slotId}`;
       const isB = slotId.startsWith('breakfast');
       const rotVal = isB ? rotation.breakfast : rotation[slotId];
       const seedPrefix = isB ? 'b' : slotId === 'lunch' ? 'l' : 's';
@@ -865,7 +857,7 @@ export default function App() {
       
       if (!newMenu[key]) {
         // First try to load from Monday's slot if it exists (for compatibility with existing drafts)
-        const existingDefault = newMenu[`Monday-${slotId}`];
+        const existingDefault = newMenu[`${selectedFriday}-Monday-${slotId}`];
         if (existingDefault && existingDefault.name && !existingDefault.name.includes('Choose')) {
           newMenu[key] = { ...existingDefault };
         } else {
@@ -880,9 +872,10 @@ export default function App() {
       }
     });
 
-    setWeeklyMenu(newMenu);
-    setLockedSlots(newLocked);
-  }, [selectedFriday, allWeeksMenu, allWeeksLocked]);
+    if (changed) {
+      setWeeklyMenu(newMenu);
+    }
+  }, [selectedFriday]);
 
   // --- WORKFLOWY API CLIENT ENGINES ---
   async function callWorkflowy(action, body) {
@@ -1251,12 +1244,12 @@ export default function App() {
 
   // Pre-load ingredients for all selected recipes in the weekly menu in the background
   useEffect(() => {
-    Object.values(weeklyMenu).forEach(recipe => {
+    Object.values(activeWeeklyMenu).forEach(recipe => {
       if (recipe && recipe.id && !recipe.id.startsWith('seed-')) {
         ensureIngredientsLoaded(recipe);
       }
     });
-  }, [weeklyMenu]);
+  }, [activeWeeklyMenu]);
 
   // Consolidated and Deduplicated Grocery List
   const consolidatedGroceries = useMemo(() => {
@@ -1265,7 +1258,7 @@ export default function App() {
     const uniqueRecipes = [];
     const seenNames = new Set();
     
-    Object.values(weeklyMenu).forEach(recipe => {
+    Object.values(activeWeeklyMenu).forEach(recipe => {
       if (!recipe || !recipe.name || recipe.name.includes('Choose')) return;
       const cleanName = recipe.name.trim().toLowerCase();
       if (!seenNames.has(cleanName)) {
@@ -1312,7 +1305,7 @@ export default function App() {
       name: g.name,
       sources: Array.from(g.sources).join(', ')
     })).sort((a, b) => a.name.localeCompare(b.name));
-  }, [weeklyMenu, ingredientCache, recipes]);
+  }, [activeWeeklyMenu, ingredientCache, recipes]);
 
   // Combined grocery list merging planner ingredients and active Workflowy bullets
   const mergedGroceries = useMemo(() => {
@@ -1349,7 +1342,7 @@ export default function App() {
 
   // --- GAMIFIED LOTTERY ENGINE ---
   function rollSlot(day, slot) {
-    const key = `${day}-${slot}`;
+    const key = `${selectedFriday}-${day}-${slot}`;
     if (lockedSlots[key]) return; // locked
 
     setRollingSlots(prev => ({ ...prev, [key]: true }));
@@ -1392,9 +1385,9 @@ export default function App() {
         const updated = { ...prev };
         if (day === 'Weekday') {
           ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(d => {
-            updated[`${d}-${slot}`] = mealObj;
+            updated[`${selectedFriday}-${d}-${slot}`] = mealObj;
           });
-          updated[`Weekday-${slot}`] = mealObj;
+          updated[`${selectedFriday}-Weekday-${slot}`] = mealObj;
         } else {
           updated[key] = mealObj;
         }
@@ -1406,31 +1399,32 @@ export default function App() {
   }
 
   // Roll all slots that are not locked
+  // Changed locked check to use activeLockedSlots (stripping selectedFriday)
   function rollAllUnlocked() {
     setIsRollingAll(true);
     setTimeout(() => setIsRollingAll(false), 1000);
 
     // 1. Roll Weekday slots (Mon - Fri) unified
-    if (!lockedSlots['Weekday-breakfast-kyle']) rollSlot('Weekday', 'breakfast-kyle');
-    if (!lockedSlots['Weekday-breakfast-ariel']) rollSlot('Weekday', 'breakfast-ariel');
-    if (!lockedSlots['Weekday-lunch']) rollSlot('Weekday', 'lunch');
-    if (!lockedSlots['Weekday-snack']) rollSlot('Weekday', 'snack');
+    if (!activeLockedSlots['Weekday-breakfast-kyle']) rollSlot('Weekday', 'breakfast-kyle');
+    if (!activeLockedSlots['Weekday-breakfast-ariel']) rollSlot('Weekday', 'breakfast-ariel');
+    if (!activeLockedSlots['Weekday-lunch']) rollSlot('Weekday', 'lunch');
+    if (!activeLockedSlots['Weekday-snack']) rollSlot('Weekday', 'snack');
 
     // 2. Roll Saturday slots
-    if (!lockedSlots['Saturday-breakfast-kyle']) rollSlot('Saturday', 'breakfast-kyle');
-    if (!lockedSlots['Saturday-breakfast-ariel']) rollSlot('Saturday', 'breakfast-ariel');
-    if (!lockedSlots['Saturday-lunch']) rollSlot('Saturday', 'lunch');
-    if (!lockedSlots['Saturday-snack']) rollSlot('Saturday', 'snack');
+    if (!activeLockedSlots['Saturday-breakfast-kyle']) rollSlot('Saturday', 'breakfast-kyle');
+    if (!activeLockedSlots['Saturday-breakfast-ariel']) rollSlot('Saturday', 'breakfast-ariel');
+    if (!activeLockedSlots['Saturday-lunch']) rollSlot('Saturday', 'lunch');
+    if (!activeLockedSlots['Saturday-snack']) rollSlot('Saturday', 'snack');
 
     // 3. Roll Sunday slots
-    if (!lockedSlots['Sunday-breakfast-kyle']) rollSlot('Sunday', 'breakfast-kyle');
-    if (!lockedSlots['Sunday-breakfast-ariel']) rollSlot('Sunday', 'breakfast-ariel');
-    if (!lockedSlots['Sunday-lunch']) rollSlot('Sunday', 'lunch');
-    if (!lockedSlots['Sunday-snack']) rollSlot('Sunday', 'snack');
+    if (!activeLockedSlots['Sunday-breakfast-kyle']) rollSlot('Sunday', 'breakfast-kyle');
+    if (!activeLockedSlots['Sunday-breakfast-ariel']) rollSlot('Sunday', 'breakfast-ariel');
+    if (!activeLockedSlots['Sunday-lunch']) rollSlot('Sunday', 'lunch');
+    if (!activeLockedSlots['Sunday-snack']) rollSlot('Sunday', 'snack');
 
     // 4. Roll Dinners for all days individually
     days.forEach(d => {
-      if (!lockedSlots[`${d}-dinner`]) {
+      if (!activeLockedSlots[`${d}-dinner`]) {
         rollSlot(d, 'dinner');
       }
     });
@@ -1438,13 +1432,13 @@ export default function App() {
 
   // Toggle locked slot
   function toggleLock(day, slot) {
-    const key = `${day}-${slot}`;
+    const key = `${selectedFriday}-${day}-${slot}`;
     setLockedSlots(prev => {
       const nextVal = !prev[key];
       const updated = { ...prev, [key]: nextVal };
       if (day === 'Weekday') {
         ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(d => {
-          updated[`${d}-${slot}`] = nextVal;
+          updated[`${selectedFriday}-${d}-${slot}`] = nextVal;
         });
       }
       return updated;
@@ -1495,18 +1489,18 @@ export default function App() {
 
       if (day === 'Weekday') {
         ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(d => {
-          updated[`${d}-${slot}`] = mealObj;
+          updated[`${selectedFriday}-${d}-${slot}`] = mealObj;
         });
-        updated[`Weekday-${slot}`] = mealObj;
+        updated[`${selectedFriday}-Weekday-${slot}`] = mealObj;
       } else {
-        const key = `${day}-${slot}`;
+        const key = `${selectedFriday}-${day}-${slot}`;
         updated[key] = mealObj;
       }
       return updated;
     });
 
     setLockedSlots(prev => {
-      const key = `${day}-${slot}`;
+      const key = `${selectedFriday}-${day}-${slot}`;
       return { ...prev, [key]: true };
     });
 
@@ -1594,7 +1588,7 @@ export default function App() {
         const dayNodeId = dayNodeRes.id || dayNodeRes.item?.id;
 
         for (const slot of slots) {
-          const meal = weeklyMenu[`${day}-${slot.id}`];
+          const meal = activeWeeklyMenu[`${day}-${slot.id}`];
           if (meal && meal.name && !meal.name.includes('Choose')) {
             // Incorporate original recipe deep-link in name if synced
             let bulletName = `${slot.label}: ${meal.name}`;
@@ -1665,7 +1659,7 @@ export default function App() {
     days.forEach(day => {
       text += `📅 *${day.toUpperCase()}*\n`;
       slots.forEach(slot => {
-        const meal = weeklyMenu[`${day}-${slot.id}`];
+        const meal = activeWeeklyMenu[`${day}-${slot.id}`];
         if (meal && meal.name && !meal.name.includes('Choose')) {
           const emoji = slot.id.startsWith('breakfast') ? '🥞' : slot.id === 'lunch' ? '🥗' : slot.id === 'snack' ? '🥨' : '🍲';
           text += `  ${emoji} *${slot.label}:* ${cleanText(meal.name)}\n`;
@@ -1674,7 +1668,7 @@ export default function App() {
       text += `\n`;
     });
     return text;
-  }, [weeklyMenu, currentWeekLabel]);
+  }, [activeWeeklyMenu, currentWeekLabel]);
 
   function copyToClipboard(txt, msg = 'Menu text copied!') {
     navigator.clipboard.writeText(txt);
@@ -1712,9 +1706,9 @@ export default function App() {
 
   const renderPlannerSlot = (day, slotId, customLabel = null) => {
     const key = `${day}-${slotId}`;
-    const recipe = weeklyMenu[key] || { name: 'Choose...' };
-    const isLocked = lockedSlots[key];
-    const isRolling = rollingSlots[key];
+    const recipe = activeWeeklyMenu[key] || { name: 'Choose...' };
+    const isLocked = activeLockedSlots[key];
+    const isRolling = rollingSlots[`${selectedFriday}-${day}-${slotId}`];
     
     const slotDef = slots.find(s => s.id === slotId) || { label: slotId, color: 'badge-green' };
     const label = customLabel || slotDef.label;
@@ -2194,10 +2188,10 @@ export default function App() {
                   Weekday Routine (Mon – Fri) 🍱
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.9rem' }}>
-                  <div>🥐 <strong style={{ color: '#fef3c7' }}>Kyle's Breakfast:</strong> {cleanText(weeklyMenu['Monday-breakfast-kyle']?.name) || '---'}</div>
-                  <div>🥐 <strong style={{ color: '#fef3c7' }}>Ariel's Breakfast:</strong> {cleanText(weeklyMenu['Monday-breakfast-ariel']?.name) || '---'}</div>
-                  <div>🥗 <strong style={{ color: '#fef3c7' }}>Lunch:</strong> {cleanText(weeklyMenu['Monday-lunch']?.name) || '---'}</div>
-                  <div>🍿 <strong style={{ color: '#fef3c7' }}>Snack:</strong> {cleanText(weeklyMenu['Monday-snack']?.name) || '---'}</div>
+                  <div>🥐 <strong style={{ color: '#fef3c7' }}>Kyle's Breakfast:</strong> {cleanText(activeWeeklyMenu['Monday-breakfast-kyle']?.name) || '---'}</div>
+                  <div>🥐 <strong style={{ color: '#fef3c7' }}>Ariel's Breakfast:</strong> {cleanText(activeWeeklyMenu['Monday-breakfast-ariel']?.name) || '---'}</div>
+                  <div>🥗 <strong style={{ color: '#fef3c7' }}>Lunch:</strong> {cleanText(activeWeeklyMenu['Monday-lunch']?.name) || '---'}</div>
+                  <div>🍿 <strong style={{ color: '#fef3c7' }}>Snack:</strong> {cleanText(activeWeeklyMenu['Monday-snack']?.name) || '---'}</div>
                 </div>
               </div>
 
@@ -2214,7 +2208,7 @@ export default function App() {
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.9rem' }}>
                   {days.map(day => {
-                    const dinnerName = cleanText(weeklyMenu[`${day}-dinner`]?.name);
+                    const dinnerName = cleanText(activeWeeklyMenu[`${day}-dinner`]?.name);
                     const formattedLabel = formatDateLabel(day, 'dinner').replace(' Dinner', '');
                     return dinnerName && !dinnerName.includes('Choose') ? (
                       <div key={day}>🗓️ <strong style={{ color: '#fbbf24' }}>{formattedLabel}:</strong> {dinnerName}</div>
@@ -2244,11 +2238,11 @@ export default function App() {
                     {formatDateLabel('Saturday', 'weekend')}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '0.85rem', paddingLeft: '8px', borderLeft: '2px solid rgba(255,255,255,0.15)' }}>
-                    <div>🥐 <span style={{ opacity: 0.9 }}>Kyle B-fast:</span> {cleanText(weeklyMenu['Saturday-breakfast-kyle']?.name) || '---'}</div>
-                    <div>🥐 <span style={{ opacity: 0.9 }}>Ariel B-fast:</span> {cleanText(weeklyMenu['Saturday-breakfast-ariel']?.name) || '---'}</div>
-                    <div>🥗 <span style={{ opacity: 0.9 }}>Lunch:</span> {cleanText(weeklyMenu['Saturday-lunch']?.name) || '---'}</div>
-                    <div>🍿 <span style={{ opacity: 0.9 }}>Snack:</span> {cleanText(weeklyMenu['Saturday-snack']?.name) || '---'}</div>
-                    <div>🍲 <strong style={{ color: '#fbbf24' }}>Dinner:</strong> {cleanText(weeklyMenu['Saturday-dinner']?.name) || '---'}</div>
+                    <div>🥐 <span style={{ opacity: 0.9 }}>Kyle B-fast:</span> {cleanText(activeWeeklyMenu['Saturday-breakfast-kyle']?.name) || '---'}</div>
+                    <div>🥐 <span style={{ opacity: 0.9 }}>Ariel B-fast:</span> {cleanText(activeWeeklyMenu['Saturday-breakfast-ariel']?.name) || '---'}</div>
+                    <div>🥗 <span style={{ opacity: 0.9 }}>Lunch:</span> {cleanText(activeWeeklyMenu['Saturday-lunch']?.name) || '---'}</div>
+                    <div>🍿 <span style={{ opacity: 0.9 }}>Snack:</span> {cleanText(activeWeeklyMenu['Saturday-snack']?.name) || '---'}</div>
+                    <div>🍲 <strong style={{ color: '#fbbf24' }}>Dinner:</strong> {cleanText(activeWeeklyMenu['Saturday-dinner']?.name) || '---'}</div>
                   </div>
                 </div>
 
@@ -2258,11 +2252,11 @@ export default function App() {
                     {formatDateLabel('Sunday', 'weekend')}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '0.85rem', paddingLeft: '8px', borderLeft: '2px solid rgba(255,255,255,0.15)' }}>
-                    <div>🥐 <span style={{ opacity: 0.9 }}>Kyle B-fast:</span> {cleanText(weeklyMenu['Sunday-breakfast-kyle']?.name) || '---'}</div>
-                    <div>🥐 <span style={{ opacity: 0.9 }}>Ariel B-fast:</span> {cleanText(weeklyMenu['Sunday-breakfast-ariel']?.name) || '---'}</div>
-                    <div>🥗 <span style={{ opacity: 0.9 }}>Lunch:</span> {cleanText(weeklyMenu['Sunday-lunch']?.name) || '---'}</div>
-                    <div>🍿 <span style={{ opacity: 0.9 }}>Snack:</span> {cleanText(weeklyMenu['Sunday-snack']?.name) || '---'}</div>
-                    <div>🍲 <strong style={{ color: '#fbbf24' }}>Dinner:</strong> {cleanText(weeklyMenu['Sunday-dinner']?.name) || '---'}</div>
+                    <div>🥐 <span style={{ opacity: 0.9 }}>Kyle B-fast:</span> {cleanText(activeWeeklyMenu['Sunday-breakfast-kyle']?.name) || '---'}</div>
+                    <div>🥐 <span style={{ opacity: 0.9 }}>Ariel B-fast:</span> {cleanText(activeWeeklyMenu['Sunday-breakfast-ariel']?.name) || '---'}</div>
+                    <div>🥗 <span style={{ opacity: 0.9 }}>Lunch:</span> {cleanText(activeWeeklyMenu['Sunday-lunch']?.name) || '---'}</div>
+                    <div>🍿 <span style={{ opacity: 0.9 }}>Snack:</span> {cleanText(activeWeeklyMenu['Sunday-snack']?.name) || '---'}</div>
+                    <div>🍲 <strong style={{ color: '#fbbf24' }}>Dinner:</strong> {cleanText(activeWeeklyMenu['Sunday-dinner']?.name) || '---'}</div>
                   </div>
                 </div>
               </div>
