@@ -144,6 +144,15 @@ export default function App() {
     }
   });
 
+  // Dynamic groceries currently active in the Workflowy outlines
+  const [workflowyGroceries, setWorkflowyGroceries] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('wf_workflowy_groceries')) || [];
+    } catch {
+      return [];
+    }
+  });
+
   // Selected date range (weeks start on Sunday)
   const [selectedSunday, setSelectedSunday] = useState(() => {
     const defaultSun = getSundayOfCurrentWeek();
@@ -186,10 +195,11 @@ export default function App() {
     localStorage.setItem('wf_recipes', JSON.stringify(recipes));
     localStorage.setItem('wf_ingredient_cache', JSON.stringify(ingredientCache));
     localStorage.setItem('wf_details_cache', JSON.stringify(detailsCache));
+    localStorage.setItem('wf_workflowy_groceries', JSON.stringify(workflowyGroceries));
     localStorage.setItem('wf_weekly_menu', JSON.stringify(weeklyMenu));
     localStorage.setItem('wf_locked_slots', JSON.stringify(lockedSlots));
     localStorage.setItem('wf_proxy_url', proxyUrl);
-  }, [apiKey, customFolderId, rootNodeId, nodeMappings, recipes, ingredientCache, detailsCache, weeklyMenu, lockedSlots, proxyUrl]);
+  }, [apiKey, customFolderId, rootNodeId, nodeMappings, recipes, ingredientCache, detailsCache, workflowyGroceries, weeklyMenu, lockedSlots, proxyUrl]);
 
   // Current date formatted beautifully
   const currentWeekLabel = useMemo(() => {
@@ -432,6 +442,14 @@ export default function App() {
         }
       }
 
+      setSyncMessage('Fetching existing Shopping List bullets...');
+      try {
+        const wfGroceriesList = await fetchWorkflowyGroceries(mappings.groceryId);
+        setWorkflowyGroceries(wfGroceriesList);
+      } catch (err) {
+        console.warn('Failed to pre-fetch Workflowy groceries during sync', err);
+      }
+
       setRecipes(parsedRecipes);
       setSyncMessage('Successfully Synced with Workflowy!');
       setTimeout(() => setSyncMessage(null), 3000);
@@ -528,6 +546,117 @@ export default function App() {
       setLoadingDetails(prev => ({ ...prev, [recipe.id]: false }));
     }
   }
+
+  // Helper to fetch existing grocery items in Workflowy (collapsing dated weekly sub-folders)
+  async function fetchWorkflowyGroceries(groceryId) {
+    if (!groceryId) return [];
+    try {
+      const response = await callWorkflowy('list-children', { item_id: groceryId });
+      const items = response.items || response.children || [];
+      
+      const results = [];
+      for (const item of items) {
+        if (item.is_completed) continue;
+        
+        const cleanName = cleanText(item.name).toLowerCase();
+        // If it's a dated grocery folder, fetch the child ingredients!
+        if (cleanName.includes('grocery list') || cleanName.includes('week of')) {
+          try {
+            const subRes = await callWorkflowy('list-children', { item_id: item.id });
+            const subItems = subRes.items || subRes.children || [];
+            subItems.forEach(sub => {
+              if (!sub.is_completed && sub.name) {
+                results.push({
+                  id: sub.id,
+                  name: cleanText(sub.name),
+                  parentId: item.id
+                });
+              }
+            });
+          } catch (err) {
+            console.warn(`Failed to list sub-grocery list children: ${item.name}`, err);
+          }
+        } else if (item.name) {
+          // Loose ingredient directly under the main folder
+          results.push({
+            id: item.id,
+            name: cleanText(item.name),
+            parentId: groceryId
+          });
+        }
+      }
+      return results;
+    } catch (e) {
+      console.warn("Failed to fetch Workflowy groceries:", e);
+      return [];
+    }
+  }
+
+  // Toggle checkout status and synchronize in the background with Workflowy
+  async function toggleGroceryCheck(groc) {
+    const isChecked = !shoppingChecked[groc.name];
+    setShoppingChecked(prev => ({ ...prev, [groc.name]: isChecked }));
+
+    if (groc.id) {
+      try {
+        if (isChecked) {
+          await callWorkflowy('complete-item', { item_id: groc.id });
+        } else {
+          await callWorkflowy('uncomplete-item', { item_id: groc.id });
+        }
+      } catch (err) {
+        console.warn(`Failed to sync checkbox state to Workflowy for: ${groc.name}`, err);
+      }
+    }
+  }
+
+  // Fetch Workflowy groceries in the background whenever navigating to the Shopping List tab
+  useEffect(() => {
+    let active = true;
+    if (activeTab === 'groceries' && nodeMappings.groceryId) {
+      async function updateWfGroceries() {
+        const list = await fetchWorkflowyGroceries(nodeMappings.groceryId);
+        if (active) {
+          setWorkflowyGroceries(list);
+        }
+      }
+      updateWfGroceries();
+    }
+    return () => { active = false; };
+  }, [activeTab, nodeMappings.groceryId]);
+
+  // Combined grocery list merging planner ingredients and active Workflowy bullets
+  const mergedGroceries = useMemo(() => {
+    const finalMap = {};
+
+    // 1. Process all planner-generated ingredients
+    consolidatedGroceries.forEach(groc => {
+      const cleanKey = groc.name.trim().toLowerCase();
+      finalMap[cleanKey] = {
+        name: groc.name,
+        sources: groc.sources,
+        id: null
+      };
+    });
+
+    // 2. Merge with items currently active in Workflowy
+    workflowyGroceries.forEach(wfGroc => {
+      const cleanKey = wfGroc.name.trim().toLowerCase();
+      if (finalMap[cleanKey]) {
+        // Planner ingredient that already exists in Workflowy: map the ID!
+        finalMap[cleanKey].id = wfGroc.id;
+      } else {
+        // Custom manual item in Workflowy: add it!
+        finalMap[cleanKey] = {
+          name: wfGroc.name,
+          sources: 'Workflowy List 🛒',
+          id: wfGroc.id
+        };
+      }
+    });
+
+    return Object.values(finalMap).sort((a, b) => a.name.localeCompare(b.name));
+  }, [consolidatedGroceries, workflowyGroceries]);
 
   // Pre-load ingredients for all selected recipes in the weekly menu in the background
   useEffect(() => {
@@ -936,7 +1065,7 @@ export default function App() {
             style={{ flex: 1, minHeight: '40px', padding: '8px 12px', fontSize: '0.9rem', borderRadius: 'var(--radius-md)' }}
             onClick={() => setActiveTab('groceries')}
           >
-            <ShoppingCart size={16} /> Shopping ({consolidatedGroceries.length})
+            <ShoppingCart size={16} /> Shopping ({mergedGroceries.length})
           </button>
           <button 
             className={`btn ${activeTab === 'share' ? 'btn-primary' : 'btn-outline'}`} 
@@ -1079,7 +1208,7 @@ export default function App() {
                 className="btn btn-outline" 
                 style={{ width: 'auto', padding: '0 12px', minHeight: '36px', height: '36px' }}
                 onClick={() => {
-                  const txt = consolidatedGroceries.map(g => `• ${g.name} (${g.sources})`).join('\n');
+                  const txt = mergedGroceries.map(g => `• ${g.name} (${g.sources})`).join('\n');
                   copyToClipboard(txt, 'Grocery list copied for texting!');
                 }}
               >
@@ -1087,16 +1216,16 @@ export default function App() {
               </button>
             </div>
 
-            {consolidatedGroceries.length === 0 ? (
+            {mergedGroceries.length === 0 ? (
               <p style={{ textAlign: 'center', padding: '24px 0' }}>No meals planned yet. Go schedule some in the planner tab!</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {consolidatedGroceries.map(groc => {
+                {mergedGroceries.map(groc => {
                   const isChecked = shoppingChecked[groc.name];
                   return (
                     <div 
                       key={groc.name} 
-                      onClick={() => setShoppingChecked(prev => ({ ...prev, [groc.name]: !isChecked }))}
+                      onClick={() => toggleGroceryCheck(groc)}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -1511,7 +1640,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.1.1 • Built on May 30, 2026 at 10:20 AM CT
+        v1.2.0 • Built on May 30, 2026 at 10:30 AM CT
       </footer>
     </div>
   );
