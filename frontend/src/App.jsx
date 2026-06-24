@@ -910,7 +910,11 @@ export default function App() {
             body: JSON.stringify(body)
           });
           if (!response.ok) {
-            throw new Error(`Workflowy returned status ${response.status}`);
+            let errorMsg = `Workflowy returned status ${response.status}`;
+            if (response.status === 404) {
+              errorMsg += `. This usually happens if you switched Workflowy accounts or are using a shared folder with a different user's ID. Try clicking "Sync from Workflowy" in the Config tab to refresh your IDs.`;
+            }
+            throw new Error(errorMsg);
           }
           const data = await response.json();
           resolve(data);
