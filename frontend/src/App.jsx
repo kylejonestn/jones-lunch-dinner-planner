@@ -965,35 +965,7 @@ export default function App() {
     setIsLoading(true);
     setSyncMessage('Connecting to Workflowy root...');
     try {
-      // Helper for breadth-first search to avoid getting stuck in deep folders
-      async function findNodeBFS(startId, targetName, maxDepth = 3) {
-        let queue = [{ id: startId, depth: 0 }];
-        
-        while (queue.length > 0) {
-          const { id, depth } = queue.shift();
-          if (depth > maxDepth) continue;
-          
-          try {
-            const response = await callWorkflowy('list-children', { item_id: id });
-            const items = response.items || response.children || [];
-            
-            // Check all items at this level first
-            const match = items.find(item => cleanText(item.name).toLowerCase().includes(targetName.toLowerCase()));
-            if (match) return match;
-            
-            // If not found, queue all valid children for the next depth
-            for (const item of items) {
-              if (item.is_completed || !item.name) continue;
-              queue.push({ id: item.id, depth: depth + 1 });
-            }
-          } catch {
-            // Ignore sub-outline list failures and continue with the queue
-          }
-        }
-        return null;
-      }
-
-      // 1. Fetch root items and search deeply (or use customFolderId directly if provided)
+      // 1. Fetch root items (or use customFolderId directly if provided)
       let mealPlanningNode = null;
       const cleanCustomId = customFolderId ? customFolderId.trim().replace(/^.*\/#\//, '') : '';
 
@@ -1001,12 +973,23 @@ export default function App() {
         setSyncMessage('Directly accessing custom Folder ID...');
         mealPlanningNode = { id: cleanCustomId, name: 'Meal Planning🍴' };
       } else {
-        mealPlanningNode = await findNodeBFS('None', 'Meal Planning', 3);
+        setSyncMessage('Checking root node for Meal Planning folder...');
+        try {
+          const rootRes = await callWorkflowy('list-children', { item_id: 'None' });
+          const rootItems = rootRes.items || rootRes.children || [];
+          const match = rootItems.find(item => cleanText(item.name).toLowerCase().includes('meal planning'));
+          if (match) {
+            mealPlanningNode = match;
+          }
+        } catch (e) {
+          console.error("Failed to query root", e);
+        }
       }
 
       if (!mealPlanningNode) {
         setIsLoading(false);
-        alert('Could not find a node named "Meal Planning🍴" within the top 3 levels of your Workflowy. Please make sure the folder exists and is named correctly!');
+        alert('Could not find a node named "Meal Planning🍴" at the root level of your Workflowy. Please paste the direct Workflowy link to the Meal Planning folder in the Settings tab to bypass searching!');
+        setActiveTab('settings');
         return;
       }
 
@@ -2390,16 +2373,16 @@ export default function App() {
             </div>
 
             <div className="input-group">
-              <label className="input-label">Workflowy Folder ID (Optional)</label>
+              <label className="input-label">Direct Workflowy URL for "Meal Planning" (Required for Ariel)</label>
               <input 
                 type="text" 
                 className="input-text" 
                 value={customFolderId} 
                 onChange={(e) => setCustomFolderId(e.target.value)} 
-                placeholder="e.g. 1a51710e-87a0-c3de-5a2c-7af2651a82d0"
+                placeholder="e.g. https://workflowy.com/#/1a51710e87a0c3de"
               />
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                If your folder is deeply nested and recursive sync fails, paste the URL or ID of your "Meal Planning🍴" bullet here!
+                If you are sharing this account, paste the exact Workflowy URL of your "Meal Planning🍴" bullet here to instantly bypass search and unlock Cloud Sync!
               </p>
             </div>
 
