@@ -2723,7 +2723,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.5.3 • Built on May 30, 2026 at 3:08 PM CT
+        v1.5.4 • Built on Jun 23, 2026 at 8:56 PM CT
       </footer>
     </div>
   );
