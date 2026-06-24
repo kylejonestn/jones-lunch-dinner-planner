@@ -936,23 +936,29 @@ export default function App() {
     setIsLoading(true);
     setSyncMessage('Connecting to Workflowy root...');
     try {
-      // Helper for deep recursive search
-      async function findNodeDeeply(parentId, targetName, currentDepth = 0, maxDepth = 3) {
-        if (currentDepth > maxDepth) return null;
+      // Helper for breadth-first search to avoid getting stuck in deep folders
+      async function findNodeBFS(startId, targetName, maxDepth = 3) {
+        let queue = [{ id: startId, depth: 0 }];
         
-        const response = await callWorkflowy('list-children', { item_id: parentId });
-        const items = response.items || response.children || [];
-        
-        const match = items.find(item => cleanText(item.name).toLowerCase().includes(targetName.toLowerCase()));
-        if (match) return match;
-        
-        for (const item of items) {
-          if (item.is_completed || !item.name) continue;
+        while (queue.length > 0) {
+          const { id, depth } = queue.shift();
+          if (depth > maxDepth) continue;
+          
           try {
-            const found = await findNodeDeeply(item.id, targetName, currentDepth + 1, maxDepth);
-            if (found) return found;
+            const response = await callWorkflowy('list-children', { item_id: id });
+            const items = response.items || response.children || [];
+            
+            // Check all items at this level first
+            const match = items.find(item => cleanText(item.name).toLowerCase().includes(targetName.toLowerCase()));
+            if (match) return match;
+            
+            // If not found, queue all valid children for the next depth
+            for (const item of items) {
+              if (item.is_completed || !item.name) continue;
+              queue.push({ id: item.id, depth: depth + 1 });
+            }
           } catch {
-            // Ignore sub-outline list failures
+            // Ignore sub-outline list failures and continue with the queue
           }
         }
         return null;
@@ -966,7 +972,7 @@ export default function App() {
         setSyncMessage('Directly accessing custom Folder ID...');
         mealPlanningNode = { id: cleanCustomId, name: 'Meal Planning🍴' };
       } else {
-        mealPlanningNode = await findNodeDeeply('None', 'Meal Planning', 0, 3);
+        mealPlanningNode = await findNodeBFS('None', 'Meal Planning', 3);
       }
 
       if (!mealPlanningNode) {
