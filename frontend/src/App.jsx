@@ -2121,7 +2121,7 @@ export default function App() {
                 <h3 style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>Weekday Routine 🍱</h3>
                 <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>Mon – Fri Same Plan</span>
               </div>
-              <div className={isDesktop ? "desktop-planner-grid" : ""} style={!isDesktop ? { display: 'flex', flexDirection: 'column', gap: '10px' } : {}}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {renderPlannerSlot('Weekday', 'breakfast-kyle')}
                 {renderPlannerSlot('Weekday', 'breakfast-ariel')}
                 {renderPlannerSlot('Weekday', 'lunch')}
@@ -2135,7 +2135,7 @@ export default function App() {
                 <h3 style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>Weekly Dinners 🍲</h3>
                 <span className="badge badge-yellow" style={{ fontSize: '0.7rem' }}>Daily Selection</span>
               </div>
-              <div className={isDesktop ? "desktop-planner-grid" : ""} style={!isDesktop ? { display: 'flex', flexDirection: 'column', gap: '10px' } : {}}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {days.map(day => renderPlannerSlot(day, 'dinner', formatDateLabel(day, 'dinner')))}
               </div>
             </div>
