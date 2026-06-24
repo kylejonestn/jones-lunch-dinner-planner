@@ -98,7 +98,21 @@ function formatLocalDate(date) {
 // Strictly sequential API request queue to prevent Workflowy 429 Rate Limits
 let requestQueue = Promise.resolve();
 
+// --- CUSTOM HOOK: useMediaQuery ---
+function useMediaQuery(query) {
+  const [matches, setMatches] = React.useState(false);
+  React.useEffect(() => {
+    const media = window.matchMedia(query);
+    if (media.matches !== matches) setMatches(media.matches);
+    const listener = () => setMatches(media.matches);
+    media.addEventListener('change', listener);
+    return () => media.removeEventListener('change', listener);
+  }, [matches, query]);
+  return matches;
+}
+
 export default function App() {
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
   // --- STATE ---
   const [proxyUrl, setProxyUrl] = useState(() => {
     const saved = localStorage.getItem('wf_proxy_url');
@@ -1969,8 +1983,8 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Tabs Navigation */}
-      {apiKey && (
+      {/* Main Tabs Navigation (Hidden on Desktop) */}
+      {apiKey && !isDesktop && (
         <div style={{ display: 'flex', gap: '8px', background: 'white', padding: '4px', borderRadius: 'var(--radius-lg)', marginBottom: '24px', border: '1px solid var(--border)' }}>
           <button 
             className={`btn ${activeTab === 'planner' ? 'btn-primary' : 'btn-outline'}`} 
@@ -2005,9 +2019,29 @@ export default function App() {
         </div>
       )}
 
-      {/* TAB: PLANNER */}
-      {apiKey && activeTab === 'planner' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* Desktop Header Actions (Only shown on Desktop) */}
+      {apiKey && isDesktop && (
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
+          <button className={`btn ${activeTab === 'planner' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setActiveTab('planner')} style={{ flex: 1 }}>
+            <Calendar size={18} /> Planner
+          </button>
+          <button className={`btn ${activeTab === 'share' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setActiveTab('share')} style={{ flex: 1 }}>
+            <Share2 size={18} /> Share & Sync
+          </button>
+          <button className={`btn ${activeTab === 'settings' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setActiveTab('settings')} style={{ flex: 1 }}>
+            <Settings size={18} /> Settings
+          </button>
+        </div>
+      )}
+
+      {/* Main Grid Wrapper */}
+      {apiKey && (
+        <div className={isDesktop ? "desktop-grid" : ""}>
+          
+          <div className={isDesktop ? "desktop-main-content" : ""}>
+            {/* TAB: PLANNER */}
+            {(activeTab === 'planner' || (isDesktop && activeTab === 'planner')) && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           
           {/* Week Selector Grid */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'white', padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
@@ -2053,7 +2087,7 @@ export default function App() {
               <h3 style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>Weekday Routine 🍱</h3>
               <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>Mon – Fri Same Plan</span>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div className={isDesktop ? "desktop-planner-grid" : ""} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {renderPlannerSlot('Weekday', 'breakfast-kyle')}
               {renderPlannerSlot('Weekday', 'breakfast-ariel')}
               {renderPlannerSlot('Weekday', 'lunch')}
@@ -2067,7 +2101,7 @@ export default function App() {
               <h3 style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>Weekly Dinners 🍲</h3>
               <span className="badge badge-yellow" style={{ fontSize: '0.7rem' }}>Daily Selection</span>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div className={isDesktop ? "desktop-planner-grid" : ""} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {days.map(day => renderPlannerSlot(day, 'dinner', formatDateLabel(day, 'dinner')))}
             </div>
           </div>
@@ -2079,7 +2113,7 @@ export default function App() {
               <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>Sat – Sun Plan</span>
             </div>
             
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className={isDesktop ? "desktop-weekend-split" : ""} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {/* Saturday Section */}
               <div>
                 <h4 style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '0.95rem', marginBottom: '8px', borderBottom: '1px dashed var(--border)', paddingBottom: '4px' }}>
@@ -2110,75 +2144,19 @@ export default function App() {
             </div>
           </div>
 
-          {/* Sticky Bottom Share bar */}
-          <div className="bottom-tray">
-            <button className="btn btn-primary" onClick={() => setActiveTab('share')}>
-              <Share2 size={20} />
-              Share Meal Plan 📤
-            </button>
-          </div>
-
-        </div>
-      )}
-
-      {/* TAB: SHOPPING LIST */}
-      {apiKey && activeTab === 'groceries' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h2 style={{ color: 'var(--primary-dark)' }}>Grocery Shopping List</h2>
-                <p>Consolidated ingredients for your menu</p>
-              </div>
-              <button 
-                className="btn btn-outline" 
-                style={{ width: 'auto', padding: '0 12px', minHeight: '36px', height: '36px' }}
-                onClick={() => {
-                  const txt = mergedGroceries.map(g => `• ${g.name} (${g.sources})`).join('\n');
-                  copyToClipboard(txt, 'Grocery list copied for texting!');
-                }}
-              >
-                <Copy size={16} /> Copy List
+          {/* Sticky Bottom Share bar (Hidden on desktop) */}
+          {!isDesktop && (
+            <div className="bottom-tray">
+              <button className="btn btn-primary" onClick={() => setActiveTab('share')}>
+                <Share2 size={20} />
+                Share Meal Plan 📤
               </button>
             </div>
+          )}
 
-            {mergedGroceries.length === 0 ? (
-              <p style={{ textAlign: 'center', padding: '24px 0' }}>No meals planned yet. Go schedule some in the planner tab!</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {mergedGroceries.map(groc => {
-                  const isChecked = shoppingChecked[groc.name];
-                  return (
-                    <div 
-                      key={groc.name} 
-                      onClick={() => toggleGroceryCheck(groc)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '12px',
-                        padding: '12px 14px',
-                        background: isChecked ? '#f5f5f4' : '#ffffff',
-                        border: '1px solid var(--border)',
-                        borderRadius: 'var(--radius-md)',
-                        textDecoration: isChecked ? 'line-through' : 'none',
-                        color: isChecked ? 'var(--text-muted)' : 'var(--text-main)',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >
-                      {isChecked ? <CheckSquare size={20} color="var(--primary)" /> : <Square size={20} color="var(--text-muted)" />}
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{groc.name}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>For: {cleanText(groc.sources)}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
         </div>
       )}
-
+      
       {/* TAB: SHARE VIEW */}
       {apiKey && activeTab === 'share' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -2571,6 +2549,69 @@ export default function App() {
           </div>
         </div>
       )}
+
+      </div> {/* End of desktop-main-content */}
+
+      {/* Start of desktop-sidebar */}
+      {/* TAB: SHOPPING LIST */}
+      {apiKey && (activeTab === 'groceries' || (isDesktop && activeTab === 'planner')) && (
+        <div className={isDesktop ? "desktop-sidebar" : ""} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h2 style={{ color: 'var(--primary-dark)' }}>Grocery Shopping List</h2>
+                <p>Consolidated ingredients for your menu</p>
+              </div>
+              <button 
+                className="btn btn-outline" 
+                style={{ width: 'auto', padding: '0 12px', minHeight: '36px', height: '36px' }}
+                onClick={() => {
+                  const txt = mergedGroceries.map(g => `• ${g.name} (${g.sources})`).join('\n');
+                  copyToClipboard(txt, 'Grocery list copied for texting!');
+                }}
+              >
+                <Copy size={16} /> Copy List
+              </button>
+            </div>
+
+            {mergedGroceries.length === 0 ? (
+              <p style={{ textAlign: 'center', padding: '24px 0' }}>No meals planned yet. Go schedule some in the planner tab!</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {mergedGroceries.map(groc => {
+                  const isChecked = shoppingChecked[groc.name];
+                  return (
+                    <div 
+                      key={groc.name} 
+                      onClick={() => toggleGroceryCheck(groc)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        padding: '12px 14px',
+                        background: isChecked ? '#f5f5f4' : '#ffffff',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-md)',
+                        textDecoration: isChecked ? 'line-through' : 'none',
+                        color: isChecked ? 'var(--text-muted)' : 'var(--text-main)',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      {isChecked ? <CheckSquare size={20} color="var(--primary)" /> : <Square size={20} color="var(--text-muted)" />}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{groc.name}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>For: {cleanText(groc.sources)}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      </div>)} {/* End of desktop-grid */}
 
       {/* OVERLAY MODAL: MANUAL SEARCH & SELECT */}
       {showSearchModal && (

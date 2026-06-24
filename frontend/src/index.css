@@ -91,13 +91,14 @@ button {
 /* Layout Utilities */
 .container {
   width: 100%;
-  max-width: 480px; /* Locked to standard mobile phone width */
+  max-width: 480px; /* Mobile width by default */
   margin: 0 auto;
   padding: 16px;
   display: flex;
   flex-direction: column;
   flex: 1;
   padding-bottom: 96px; /* Space for sticky actions bottom */
+  transition: all 0.3s ease;
 }
 
 /* Glassmorphism Cards */
@@ -142,6 +143,67 @@ button {
   z-index: 100;
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.05);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+/* Desktop Grid Layout Overlay */
+@media (min-width: 1024px) {
+  .container {
+    max-width: 1400px; /* Widescreen */
+    padding: 32px 48px;
+    padding-bottom: 48px;
+  }
+  
+  .desktop-grid {
+    display: grid;
+    grid-template-columns: 1fr 400px;
+    gap: 32px;
+    align-items: start;
+  }
+
+  .desktop-main-content {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  .desktop-sidebar {
+    position: sticky;
+    top: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    max-height: calc(100vh - 64px);
+    overflow-y: auto;
+  }
+
+  /* Override mobile bottom tray to flow naturally on desktop */
+  .desktop-actions-tray {
+    position: static;
+    background: transparent;
+    backdrop-filter: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    max-width: none;
+    box-shadow: none;
+    border-radius: 0;
+    display: flex;
+    gap: 12px;
+  }
+
+  /* Two-column layout for planner slots */
+  .desktop-planner-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  
+  /* Make weekend cards split nicely */
+  .desktop-weekend-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
 }
 
 /* Buttons */
