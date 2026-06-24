@@ -204,6 +204,14 @@ button {
     grid-template-columns: 1fr 1fr;
     gap: 24px;
   }
+
+  /* Make weekday routine and weekly dinners split side-by-side */
+  .desktop-cards-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    align-items: start;
+  }
 }
 
 /* Buttons */

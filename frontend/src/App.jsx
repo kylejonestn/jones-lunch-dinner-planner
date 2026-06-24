@@ -25,7 +25,8 @@ import {
   Edit,
   Eye,
   EyeOff,
-  MessageSquare
+  MessageSquare,
+  X
 } from 'lucide-react';
 import {
   getRotationForDate,
@@ -293,6 +294,20 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedRecipes, setExpandedRecipes] = useState({});
   const [loadingDetails, setLoadingDetails] = useState({});
+  const [customGroceries, setCustomGroceries] = useState(() => {
+    try {
+      const stored = localStorage.getItem('jones_custom_groceries');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [customGroceryInput, setCustomGroceryInput] = useState('');
+
+  // Persist custom groceries
+  useEffect(() => {
+    localStorage.setItem('jones_custom_groceries', JSON.stringify(customGroceries));
+  }, [customGroceries]);
 
   // Save critical states locally
   useEffect(() => {
@@ -1442,8 +1457,24 @@ export default function App() {
       }
     });
 
+    // 3. Add custom groceries from local app state
+    customGroceries.forEach(groc => {
+      const cleanKey = groc.trim().toLowerCase();
+      if (finalMap[cleanKey]) {
+        if (!finalMap[cleanKey].sources.includes('Custom')) {
+          finalMap[cleanKey].sources += ', Custom Addition';
+        }
+      } else {
+        finalMap[cleanKey] = {
+          name: groc,
+          sources: 'Custom Addition',
+          id: null
+        };
+      }
+    });
+
     return Object.values(finalMap).sort((a, b) => a.name.localeCompare(b.name));
-  }, [consolidatedGroceries, workflowyGroceries]);
+  }, [consolidatedGroceries, workflowyGroceries, customGroceries]);
 
   // --- GAMIFIED LOTTERY ENGINE ---
   function rollSlot(day, slot) {
@@ -2081,29 +2112,34 @@ export default function App() {
             </button>
           </div>
 
-          {/* Weekday Routine Card */}
-          <div className="card card-primary" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-              <h3 style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>Weekday Routine 🍱</h3>
-              <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>Mon – Fri Same Plan</span>
+          {/* Desktop Split Wrapper for Routine & Dinners */}
+          <div className={isDesktop ? "desktop-cards-split" : ""} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            
+            {/* Weekday Routine Card */}
+            <div className="card card-primary" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                <h3 style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>Weekday Routine 🍱</h3>
+                <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>Mon – Fri Same Plan</span>
+              </div>
+              <div className={isDesktop ? "desktop-planner-grid" : ""} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {renderPlannerSlot('Weekday', 'breakfast-kyle')}
+                {renderPlannerSlot('Weekday', 'breakfast-ariel')}
+                {renderPlannerSlot('Weekday', 'lunch')}
+                {renderPlannerSlot('Weekday', 'snack')}
+              </div>
             </div>
-            <div className={isDesktop ? "desktop-planner-grid" : ""} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {renderPlannerSlot('Weekday', 'breakfast-kyle')}
-              {renderPlannerSlot('Weekday', 'breakfast-ariel')}
-              {renderPlannerSlot('Weekday', 'lunch')}
-              {renderPlannerSlot('Weekday', 'snack')}
-            </div>
-          </div>
 
-          {/* Weekly Dinners Card */}
-          <div className="card card-primary" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-              <h3 style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>Weekly Dinners 🍲</h3>
-              <span className="badge badge-yellow" style={{ fontSize: '0.7rem' }}>Daily Selection</span>
+            {/* Weekly Dinners Card */}
+            <div className="card card-primary" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                <h3 style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>Weekly Dinners 🍲</h3>
+                <span className="badge badge-yellow" style={{ fontSize: '0.7rem' }}>Daily Selection</span>
+              </div>
+              <div className={isDesktop ? "desktop-planner-grid" : ""} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {days.map(day => renderPlannerSlot(day, 'dinner', formatDateLabel(day, 'dinner')))}
+              </div>
             </div>
-            <div className={isDesktop ? "desktop-planner-grid" : ""} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {days.map(day => renderPlannerSlot(day, 'dinner', formatDateLabel(day, 'dinner')))}
-            </div>
+
           </div>
 
           {/* Weekend Routine Card */}
@@ -2574,12 +2610,42 @@ export default function App() {
               </button>
             </div>
 
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input 
+                type="text" 
+                className="input-text" 
+                placeholder="Add item..." 
+                value={customGroceryInput}
+                onChange={(e) => setCustomGroceryInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && customGroceryInput.trim()) {
+                    setCustomGroceries(prev => [...prev, customGroceryInput.trim()]);
+                    setCustomGroceryInput('');
+                  }
+                }}
+                style={{ padding: '8px 12px', minHeight: '40px' }}
+              />
+              <button 
+                className="btn btn-primary" 
+                style={{ flex: '0 0 auto', width: 'auto', minHeight: '40px', padding: '0 16px' }}
+                onClick={() => {
+                  if (customGroceryInput.trim()) {
+                    setCustomGroceries(prev => [...prev, customGroceryInput.trim()]);
+                    setCustomGroceryInput('');
+                  }
+                }}
+              >
+                <Plus size={18} /> Add
+              </button>
+            </div>
+
             {mergedGroceries.length === 0 ? (
               <p style={{ textAlign: 'center', padding: '24px 0' }}>No meals planned yet. Go schedule some in the planner tab!</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {mergedGroceries.map(groc => {
                   const isChecked = shoppingChecked[groc.name];
+                  const isCustom = groc.sources.includes('Custom Addition');
                   return (
                     <div 
                       key={groc.name} 
@@ -2602,6 +2668,26 @@ export default function App() {
                         <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{groc.name}</div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>For: {cleanText(groc.sources)}</div>
                       </div>
+                      {isCustom && (
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCustomGroceries(prev => prev.filter(item => item.trim().toLowerCase() !== groc.name.trim().toLowerCase()));
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '50%',
+                            color: 'var(--danger)',
+                            background: 'rgba(239, 68, 68, 0.1)',
+                          }}
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
                     </div>
                   );
                 })}
