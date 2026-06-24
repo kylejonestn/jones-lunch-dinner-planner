@@ -2113,7 +2113,7 @@ export default function App() {
           </div>
 
           {/* Desktop Split Wrapper for Routine & Dinners */}
-          <div className={isDesktop ? "desktop-cards-split" : ""} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div className={isDesktop ? "desktop-cards-split" : ""} style={!isDesktop ? { display: 'flex', flexDirection: 'column', gap: '20px' } : {}}>
             
             {/* Weekday Routine Card */}
             <div className="card card-primary" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -2121,7 +2121,7 @@ export default function App() {
                 <h3 style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>Weekday Routine 🍱</h3>
                 <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>Mon – Fri Same Plan</span>
               </div>
-              <div className={isDesktop ? "desktop-planner-grid" : ""} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div className={isDesktop ? "desktop-planner-grid" : ""} style={!isDesktop ? { display: 'flex', flexDirection: 'column', gap: '10px' } : {}}>
                 {renderPlannerSlot('Weekday', 'breakfast-kyle')}
                 {renderPlannerSlot('Weekday', 'breakfast-ariel')}
                 {renderPlannerSlot('Weekday', 'lunch')}
@@ -2135,7 +2135,7 @@ export default function App() {
                 <h3 style={{ color: 'var(--primary-dark)', fontWeight: 800 }}>Weekly Dinners 🍲</h3>
                 <span className="badge badge-yellow" style={{ fontSize: '0.7rem' }}>Daily Selection</span>
               </div>
-              <div className={isDesktop ? "desktop-planner-grid" : ""} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div className={isDesktop ? "desktop-planner-grid" : ""} style={!isDesktop ? { display: 'flex', flexDirection: 'column', gap: '10px' } : {}}>
                 {days.map(day => renderPlannerSlot(day, 'dinner', formatDateLabel(day, 'dinner')))}
               </div>
             </div>
@@ -2149,7 +2149,7 @@ export default function App() {
               <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>Sat – Sun Plan</span>
             </div>
             
-            <div className={isDesktop ? "desktop-weekend-split" : ""} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className={isDesktop ? "desktop-weekend-split" : ""} style={!isDesktop ? { display: 'flex', flexDirection: 'column', gap: '16px' } : {}}>
               {/* Saturday Section */}
               <div>
                 <h4 style={{ color: 'var(--primary)', fontWeight: 700, fontSize: '0.95rem', marginBottom: '8px', borderBottom: '1px dashed var(--border)', paddingBottom: '4px' }}>
