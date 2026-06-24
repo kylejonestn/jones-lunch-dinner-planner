@@ -1036,11 +1036,43 @@ export default function App() {
         dinners: { soon: [], while: [], new: [], recent: [] }
       };
 
+      // Load cached category timestamps from localStorage
+      const cachedTimestamps = JSON.parse(localStorage.getItem('wf_category_timestamps')) || {};
+      const newTimestamps = { ...cachedTimestamps };
+
       for (const cat of categories) {
         const catName = cleanText(cat.name).toLowerCase();
-        setSyncMessage(`Parsing ${cleanText(cat.name)}...`);
+        const catId = cat.id;
         
-        const recipesRes = await callWorkflowy('list-children', { item_id: cat.id });
+        // Use 'lm', 'modifiedAt', or 'last_modified' based on API response
+        const lastModified = cat.lm || cat.modifiedAt || cat.last_modified || null;
+
+        // Skip pulling children if we already have this category cached AND it hasn't been modified
+        if (lastModified && cachedTimestamps[catId] === lastModified) {
+          if (catName.includes('breakfast') && recipes.breakfasts && recipes.breakfasts.length > 0) {
+            console.log(`[Cache Hit] Skipping ${catName}, no changes detected.`);
+            parsedRecipes.breakfasts = recipes.breakfasts;
+            continue;
+          } else if (catName.includes('lunch') && recipes.lunches && recipes.lunches.length > 0) {
+            console.log(`[Cache Hit] Skipping ${catName}, no changes detected.`);
+            parsedRecipes.lunches = recipes.lunches;
+            continue;
+          } else if (catName.includes('snack') && recipes.snacks && recipes.snacks.length > 0) {
+            console.log(`[Cache Hit] Skipping ${catName}, no changes detected.`);
+            parsedRecipes.snacks = recipes.snacks;
+            continue;
+          } else if (catName.includes('dinner') && recipes.dinners && (recipes.dinners.soon.length > 0 || recipes.dinners.while.length > 0 || recipes.dinners.new.length > 0 || recipes.dinners.recent.length > 0)) {
+            console.log(`[Cache Hit] Skipping ${catName}, no changes detected.`);
+            parsedRecipes.dinners = recipes.dinners;
+            continue;
+          }
+        }
+
+        // If we reach here, either the timestamp changed, or it's our first time pulling it.
+        setSyncMessage(`Parsing ${cleanText(cat.name)}...`);
+        console.log(`[Cache Miss] Fetching ${catName}...`);
+        
+        const recipesRes = await callWorkflowy('list-children', { item_id: catId });
         const items = recipesRes.items || recipesRes.children || [];
 
         const cleanList = items.map(item => ({
@@ -1051,15 +1083,41 @@ export default function App() {
 
         if (catName.includes('breakfast')) {
           parsedRecipes.breakfasts = cleanList;
+          if (lastModified) newTimestamps[catId] = lastModified;
         } else if (catName.includes('lunch')) {
           parsedRecipes.lunches = cleanList;
+          if (lastModified) newTimestamps[catId] = lastModified;
         } else if (catName.includes('snack')) {
           parsedRecipes.snacks = cleanList;
+          if (lastModified) newTimestamps[catId] = lastModified;
         } else if (catName.includes('dinner')) {
           // Dinners are structured as nested status categories
+          let dinnerSubModified = false;
           for (const statusCat of items) {
             const statusName = cleanText(statusCat.name).toLowerCase();
-            const dinnerRecipesRes = await callWorkflowy('list-children', { item_id: statusCat.id });
+            const statusId = statusCat.id;
+            const statusModified = statusCat.lm || statusCat.modifiedAt || statusCat.last_modified || null;
+
+            // Check if we can cache this specific sub-category for dinner
+            let cachedSubList = null;
+            if (statusModified && cachedTimestamps[statusId] === statusModified) {
+              if (statusName.includes('soon') || statusName.includes('thumbs')) cachedSubList = recipes.dinners.soon;
+              else if (statusName.includes('while') || statusName.includes('clock')) cachedSubList = recipes.dinners.while;
+              else if (statusName.includes('new') || statusName.includes('star')) cachedSubList = recipes.dinners.new;
+              else if (statusName.includes('recent') || statusName.includes('plate')) cachedSubList = recipes.dinners.recent;
+            }
+
+            if (cachedSubList && cachedSubList.length > 0) {
+              console.log(`[Cache Hit] Skipping dinner sub-category ${statusName}, no changes.`);
+              if (statusName.includes('soon') || statusName.includes('thumbs')) parsedRecipes.dinners.soon = cachedSubList;
+              else if (statusName.includes('while') || statusName.includes('clock')) parsedRecipes.dinners.while = cachedSubList;
+              else if (statusName.includes('new') || statusName.includes('star')) parsedRecipes.dinners.new = cachedSubList;
+              else if (statusName.includes('recent') || statusName.includes('plate')) parsedRecipes.dinners.recent = cachedSubList;
+              continue;
+            }
+
+            console.log(`[Cache Miss] Fetching dinner sub-category ${statusName}...`);
+            const dinnerRecipesRes = await callWorkflowy('list-children', { item_id: statusId });
             const dinnerItems = dinnerRecipesRes.items || dinnerRecipesRes.children || [];
             
             const dinnerList = dinnerItems.map(d => ({
@@ -1070,16 +1128,25 @@ export default function App() {
 
             if (statusName.includes('soon') || statusName.includes('thumbs')) {
               parsedRecipes.dinners.soon = dinnerList;
+              if (statusModified) newTimestamps[statusId] = statusModified;
             } else if (statusName.includes('while') || statusName.includes('clock')) {
               parsedRecipes.dinners.while = dinnerList;
+              if (statusModified) newTimestamps[statusId] = statusModified;
             } else if (statusName.includes('new') || statusName.includes('star')) {
               parsedRecipes.dinners.new = dinnerList;
+              if (statusModified) newTimestamps[statusId] = statusModified;
             } else if (statusName.includes('recent') || statusName.includes('plate')) {
               parsedRecipes.dinners.recent = dinnerList;
+              if (statusModified) newTimestamps[statusId] = statusModified;
             }
           }
+          
+          if (lastModified) newTimestamps[catId] = lastModified;
         }
       }
+
+      // Save the updated timestamps back to cache
+      localStorage.setItem('wf_category_timestamps', JSON.stringify(newTimestamps));
 
       setSyncMessage('Fetching existing Shopping List bullets...');
       try {
