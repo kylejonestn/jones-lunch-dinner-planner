@@ -561,7 +561,7 @@ export default function App() {
     return newId;
   };
 
-  const saveWeekToCloud = async (sundayDate, menu, locked) => {
+  const saveWeekToCloud = async (sundayDate, menu, locked, keepalive = false) => {
     if (!apiKey || !rootNodeId) return;
     
     const allowedWeeks = getSyncWindowFridays();
@@ -588,18 +588,18 @@ export default function App() {
         await callWorkflowy('edit-item', {
           item_id: match.id,
           note: payload
-        });
+        }, keepalive);
       } else {
         const newBullet = await callWorkflowy('create-item', {
           parent_id: syncFolderId,
           name: bulletName,
           position: 'bottom'
-        });
+        }, keepalive);
         const newId = newBullet.id || newBullet.item?.id;
         await callWorkflowy('edit-item', {
           item_id: newId,
           note: payload
-        });
+        }, keepalive);
       }
       setCloudSyncState('saved');
       setTimeout(() => setCloudSyncState('idle'), 2000);
@@ -670,6 +670,13 @@ export default function App() {
 
   // Cloud Sync debouncing hook
   const cloudSyncTimeoutRef = useRef(null);
+  const latestSyncData = useRef({ menu: activeWeeklyMenu, locked: activeLockedSlots, week: selectedFriday });
+
+  // Always keep refs up to date for the visibility listener
+  useEffect(() => {
+    latestSyncData.current = { menu: activeWeeklyMenu, locked: activeLockedSlots, week: selectedFriday };
+  }, [activeWeeklyMenu, activeLockedSlots, selectedFriday]);
+
   useEffect(() => {
     if (!apiKey || !rootNodeId || isLoading) return;
     
@@ -682,6 +689,7 @@ export default function App() {
     
     cloudSyncTimeoutRef.current = setTimeout(() => {
       saveWeekToCloud(selectedFriday, activeWeeklyMenu, activeLockedSlots);
+      cloudSyncTimeoutRef.current = null;
     }, 3000);
     
     return () => {
@@ -690,6 +698,30 @@ export default function App() {
       }
     };
   }, [activeWeeklyMenu, activeLockedSlots, selectedFriday, apiKey, rootNodeId]);
+
+  // Presence-aware Sync Engine
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        // App backgrounded: Flush any pending saves immediately using keepalive
+        if (cloudSyncTimeoutRef.current) {
+          clearTimeout(cloudSyncTimeoutRef.current);
+          cloudSyncTimeoutRef.current = null;
+          console.log("Flushing save to Workflowy via keepalive before suspend");
+          saveWeekToCloud(latestSyncData.current.week, latestSyncData.current.menu, latestSyncData.current.locked, true);
+        }
+      } else if (document.visibilityState === 'visible') {
+        // App foregrounded: Fetch latest changes from other devices silently
+        if (apiKey && rootNodeId) {
+          console.log("App active: Pulling latest changes from Workflowy");
+          loadWeekFromCloud(latestSyncData.current.week);
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [apiKey, rootNodeId]);
 
   // Load from cloud when week changes
   useEffect(() => {
@@ -921,7 +953,7 @@ export default function App() {
   }, [selectedFriday]);
 
   // --- WORKFLOWY API CLIENT ENGINES ---
-  async function callWorkflowy(action, body) {
+  async function callWorkflowy(action, body, keepalive = false) {
     const token = apiKey.trim();
 
     return new Promise((resolve, reject) => {
@@ -932,6 +964,7 @@ export default function App() {
           const cleanProxyUrl = proxyUrl.trim().replace(/\/+$/, '');
           const response = await fetch(`${cleanProxyUrl}/api/workflowy/${action}`, {
             method: 'POST',
+            keepalive: keepalive,
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${token}`
