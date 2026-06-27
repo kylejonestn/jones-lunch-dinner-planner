@@ -2760,7 +2760,7 @@ export default function App() {
               ) : (
                 filteredSearchList.map(item => {
                   const activeDays = Array.from(new Set(
-                    Object.entries(weeklyMenu)
+                    Object.entries(activeWeeklyMenu)
                       .filter(([key, val]) => val && val.name && val.name.trim().toLowerCase() === item.name.trim().toLowerCase())
                       .map(([key]) => key.split('-')[0])
                   ));
