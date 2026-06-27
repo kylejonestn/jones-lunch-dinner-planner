@@ -2658,7 +2658,7 @@ export default function App() {
             {mergedGroceries.length === 0 ? (
               <p style={{ textAlign: 'center', padding: '24px 0' }}>No meals planned yet. Go schedule some in the planner tab!</p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', overflowY: 'auto', paddingRight: '8px', maxHeight: isDesktop ? 'calc(100vh - 220px)' : 'none' }}>
                 {mergedGroceries.map(groc => {
                   const isChecked = shoppingChecked[groc.name];
                   const isCustom = groc.sources.includes('Custom Addition');
@@ -2939,7 +2939,7 @@ export default function App() {
         color: 'var(--text-muted)',
         opacity: 0.8
       }}>
-        v1.6.0 • Built on Jun 23, 2026 at 9:57 PM CT
+        v1.6.1 • Built on Jun 27, 2026 at 6:58 PM CT
       </footer>
     </div>
   );
