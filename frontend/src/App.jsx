@@ -2373,7 +2373,7 @@ export default function App() {
             </div>
 
             <div className="input-group">
-              <label className="input-label">Direct Workflowy URL for "Meal Planning" (Required for Ariel)</label>
+              <label className="input-label">ParentID for "Meal Planning" node</label>
               <input 
                 type="text" 
                 className="input-text" 
