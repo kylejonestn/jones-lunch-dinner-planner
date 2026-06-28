@@ -199,6 +199,13 @@ export default function App() {
   const [groceryInputMode, setGroceryInputMode] = useState('add'); // 'add' | 'search'
   const [grocerySearchQuery, setGrocerySearchQuery] = useState('');
   const [grocerySortMode, setGrocerySortMode] = useState('alpha'); // 'alpha' | 'menu'
+  const [pushedGroceryIds, setPushedGroceryIds] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('wf_pushed_grocery_ids')) || [];
+    } catch {
+      return [];
+    }
+  });
 
   // Selected date range (weeks start on Friday)
   const [selectedFriday, setSelectedFriday] = useState(() => {
@@ -331,6 +338,10 @@ export default function App() {
     localStorage.setItem('wf_google_selected_calendar_id', selectedCalendarId);
     localStorage.setItem('wf_dinner_time', dinnerTime);
   }, [apiKey, customFolderId, weeklyPlanFolder, rootNodeId, nodeMappings, recipes, ingredientCache, detailsCache, workflowyGroceries, weeklyMenu, lockedSlots, proxyUrl, googleClientId, selectedCalendarId, dinnerTime]);
+
+  useEffect(() => {
+    localStorage.setItem('wf_pushed_grocery_ids', JSON.stringify(pushedGroceryIds));
+  }, [pushedGroceryIds]);
 
   // Load Google Identity Services SDK dynamically
   useEffect(() => {
@@ -1344,6 +1355,73 @@ export default function App() {
     } catch (e) {
       console.warn("Failed to fetch Workflowy groceries:", e);
       return [];
+    }
+  }
+  const [isSyncingGroceries, setIsSyncingGroceries] = useState(false);
+
+  // Sync virtual groceries to Workflowy and cleanup zombies
+  async function syncGroceriesToWorkflowy() {
+    if (!nodeMappings.groceryId) return;
+    setIsSyncingGroceries(true);
+
+    try {
+      // 1. Zombie Cleanup
+      // If an item is in workflowyGroceries AND in pushedGroceryIds,
+      // but NOT in consolidatedGroceries, it is an orphaned zombie.
+      const consolidatedNames = new Set(consolidatedGroceries.map(g => g.name.trim().toLowerCase()));
+      
+      for (const wfGroc of workflowyGroceries) {
+        if (pushedGroceryIds.includes(wfGroc.id)) {
+          if (!consolidatedNames.has(wfGroc.name.trim().toLowerCase())) {
+            // It's a zombie! Complete it (or delete it) to remove from active list
+            try {
+              await callWorkflowy('complete-item', { item_id: wfGroc.id });
+              // Remove from pushed tracking since it's gone
+              setPushedGroceryIds(prev => prev.filter(id => id !== wfGroc.id));
+            } catch (err) {
+              console.warn(`Failed to cleanup zombie grocery: ${wfGroc.name}`, err);
+            }
+          }
+        }
+      }
+
+      // 2. Push Missing Ingredients
+      const newPushedIds = [...pushedGroceryIds];
+      let pushedAny = false;
+      
+      // mergedGroceries contains both virtual and active workflowy items.
+      // We only want to push items that do not have an ID (virtual) and are not purely custom additions.
+      // Actually, we can push Custom Additions too, but let's just push everything missing an ID.
+      for (const groc of mergedGroceries) {
+        if (!groc.id) {
+          try {
+            const res = await callWorkflowy('create-item', {
+              parent_id: nodeMappings.groceryId,
+              name: groc.name,
+              position: 'bottom'
+            });
+            if (res && res.id) {
+              newPushedIds.push(res.id);
+              pushedAny = true;
+            }
+          } catch (err) {
+            console.warn(`Failed to push grocery: ${groc.name}`, err);
+          }
+        }
+      }
+
+      if (pushedAny) {
+        setPushedGroceryIds(newPushedIds);
+      }
+
+      // 3. Refresh from Workflowy
+      const freshList = await fetchWorkflowyGroceries(nodeMappings.groceryId);
+      setWorkflowyGroceries(freshList);
+
+    } catch (err) {
+      console.error("Grocery sync failed", err);
+    } finally {
+      setIsSyncingGroceries(false);
     }
   }
 
@@ -2804,6 +2882,19 @@ export default function App() {
                 </div>
               );
             })()}
+
+            {mergedGroceries.length > 0 && (
+              <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'center' }}>
+                <button 
+                  className="btn btn-primary"
+                  style={{ width: '100%' }}
+                  onClick={syncGroceriesToWorkflowy}
+                  disabled={isSyncingGroceries}
+                >
+                  {isSyncingGroceries ? 'Syncing...' : 'Sync to Workflowy (Push & Clean)'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
