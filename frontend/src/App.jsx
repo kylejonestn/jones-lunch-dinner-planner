@@ -196,6 +196,10 @@ export default function App() {
     }
   });
 
+  const [groceryInputMode, setGroceryInputMode] = useState('add'); // 'add' | 'search'
+  const [grocerySearchQuery, setGrocerySearchQuery] = useState('');
+  const [grocerySortMode, setGrocerySortMode] = useState('alpha'); // 'alpha' | 'menu'
+
   // Selected date range (weeks start on Friday)
   const [selectedFriday, setSelectedFriday] = useState(() => {
     const defaultFri = getFridayOfCurrentWeek();
@@ -1390,6 +1394,26 @@ export default function App() {
   // Consolidated and Deduplicated Grocery List
   const consolidatedGroceries = useMemo(() => {
     const list = [];
+    
+    // 1. Calculate appearance index for each recipe name
+    const recipeAppearanceMap = {};
+    let globalIndex = 0;
+    const slotsOrder = ['breakfast-kyle', 'breakfast-ariel', 'lunch', 'snack', 'dinner'];
+    
+    days.forEach(day => {
+      slotsOrder.forEach(slot => {
+        const mealKey = `${day}-${slot}`;
+        const recipe = activeWeeklyMenu[mealKey];
+        if (recipe && recipe.name && !recipe.name.includes('Choose')) {
+          const cleanName = recipe.name.trim().toLowerCase();
+          if (recipeAppearanceMap[cleanName] === undefined) {
+            recipeAppearanceMap[cleanName] = globalIndex;
+          }
+        }
+        globalIndex++;
+      });
+    });
+
     // Deduplicate the weekly menu by recipe name to avoid processing the same meal multiple times
     const uniqueRecipes = [];
     const seenNames = new Set();
@@ -1405,41 +1429,45 @@ export default function App() {
 
     uniqueRecipes.forEach(recipe => {
       if (!recipe.id) return;
+      const cleanName = recipe.name.trim().toLowerCase();
+      const score = recipeAppearanceMap[cleanName] ?? 999;
 
       if (recipe.id.startsWith('seed-')) {
-        // Fallback: If it's a seed meal, we search if we have a Workflowy equivalent matching by name
-        // to grab ingredients, otherwise we list a generic placeholder
         const cleanCategory = recipe.category;
         const matchingRecipe = recipes[cleanCategory]?.find(r => cleanText(r.name).toLowerCase() === recipe.name.toLowerCase());
         
         if (matchingRecipe && ingredientCache[matchingRecipe.id]) {
-          list.push(...ingredientCache[matchingRecipe.id].map(item => ({ item, source: recipe.name })));
+          list.push(...ingredientCache[matchingRecipe.id].map(item => ({ item, source: recipe.name, score })));
         } else {
-          // If no matches, we add a simple placeholder to remind them
-          list.push({ item: `${recipe.name} ingredients`, source: recipe.name });
+          list.push({ item: `${recipe.name} ingredients`, source: recipe.name, score });
         }
       } else if (ingredientCache[recipe.id]) {
-        list.push(...ingredientCache[recipe.id].map(item => ({ item, source: recipe.name })));
+        list.push(...ingredientCache[recipe.id].map(item => ({ item, source: recipe.name, score })));
       }
     });
 
     // Deduplicate and group
     const uniqueMap = {};
-    list.forEach(({ item, source }) => {
+    list.forEach(({ item, source, score }) => {
       const clean = item.trim();
       if (!clean || clean === '---' || clean.toLowerCase() === 'ingredients') return;
       if (!uniqueMap[clean.toLowerCase()]) {
         uniqueMap[clean.toLowerCase()] = {
           name: clean,
-          sources: new Set()
+          sources: new Set(),
+          minScore: score
         };
       }
       uniqueMap[clean.toLowerCase()].sources.add(source);
+      if (score < uniqueMap[clean.toLowerCase()].minScore) {
+        uniqueMap[clean.toLowerCase()].minScore = score;
+      }
     });
 
     return Object.values(uniqueMap).map(g => ({
       name: g.name,
-      sources: Array.from(g.sources).join(', ')
+      sources: Array.from(g.sources).join(', '),
+      appearanceIndex: g.minScore
     })).sort((a, b) => a.name.localeCompare(b.name));
   }, [activeWeeklyMenu, ingredientCache, recipes]);
 
@@ -1453,7 +1481,8 @@ export default function App() {
       finalMap[cleanKey] = {
         name: groc.name,
         sources: groc.sources,
-        id: null
+        id: null,
+        appearanceIndex: groc.appearanceIndex
       };
     });
 
@@ -1468,7 +1497,8 @@ export default function App() {
         finalMap[cleanKey] = {
           name: wfGroc.name,
           sources: 'Workflowy List 🛒',
-          id: wfGroc.id
+          id: wfGroc.id,
+          appearanceIndex: 999
         };
       }
     });
@@ -1484,13 +1514,22 @@ export default function App() {
         finalMap[cleanKey] = {
           name: groc,
           sources: 'Custom Addition',
-          id: null
+          id: null,
+          appearanceIndex: 999
         };
       }
     });
 
-    return Object.values(finalMap).sort((a, b) => a.name.localeCompare(b.name));
-  }, [consolidatedGroceries, workflowyGroceries, customGroceries]);
+    return Object.values(finalMap).sort((a, b) => {
+      if (grocerySortMode === 'menu') {
+        if (a.appearanceIndex !== b.appearanceIndex) {
+          return a.appearanceIndex - b.appearanceIndex;
+        }
+      }
+      // Fallback to alphabetical sorting
+      return a.name.localeCompare(b.name);
+    });
+  }, [consolidatedGroceries, workflowyGroceries, customGroceries, grocerySortMode]);
 
   // --- GAMIFIED LOTTERY ENGINE ---
   function rollSlot(day, slot) {
@@ -2609,106 +2648,162 @@ export default function App() {
       {apiKey && (activeTab === 'groceries' || (isDesktop && activeTab === 'planner')) && (
         <div className={isDesktop ? "desktop-sidebar" : ""} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h2 style={{ color: 'var(--primary-dark)' }}>Grocery Shopping List</h2>
-                <p>Consolidated ingredients for your menu</p>
+            <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+              <div style={{ flex: 1 }}>
+                <h2 style={{ color: 'var(--primary-dark)', fontSize: '1.25rem' }}>Grocery Shopping List</h2>
+                <p style={{ fontSize: '0.85rem' }}>Consolidated ingredients for your menu</p>
               </div>
-              <button 
-                className="btn btn-outline" 
-                style={{ width: 'auto', padding: '0 12px', minHeight: '36px', height: '36px' }}
-                onClick={() => {
-                  const txt = mergedGroceries.map(g => `• ${g.name} (${g.sources})`).join('\n');
-                  copyToClipboard(txt, 'Grocery list copied for texting!');
-                }}
-              >
-                <Copy size={16} /> Copy List
-              </button>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button 
+                  className="btn btn-outline" 
+                  style={{ width: '36px', padding: '0', minHeight: '36px', height: '36px' }}
+                  onClick={() => setGrocerySortMode(prev => prev === 'alpha' ? 'menu' : 'alpha')}
+                  title={grocerySortMode === 'alpha' ? "Sort by Menu Order" : "Sort Alphabetically"}
+                >
+                  {grocerySortMode === 'alpha' ? <span style={{ fontWeight: 'bold' }}>A-Z</span> : <span>📅</span>}
+                </button>
+                <button 
+                  className="btn btn-outline" 
+                  style={{ width: 'auto', padding: '0 12px', minHeight: '36px', height: '36px' }}
+                  onClick={() => {
+                    const txt = mergedGroceries
+                      .filter(groc => grocerySearchQuery === '' || groc.name.toLowerCase().includes(grocerySearchQuery.toLowerCase()))
+                      .map(g => `• ${g.name} (${g.sources})`).join('\n');
+                    copyToClipboard(txt, 'Grocery list copied for texting!');
+                  }}
+                >
+                  <Copy size={16} /> Copy
+                </button>
+              </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input 
-                type="text" 
-                className="input-text" 
-                placeholder="Add item..." 
-                value={customGroceryInput}
-                onChange={(e) => setCustomGroceryInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && customGroceryInput.trim()) {
-                    setCustomGroceries(prev => [...prev, customGroceryInput.trim()]);
-                    setCustomGroceryInput('');
-                  }
-                }}
-                style={{ padding: '8px 12px', minHeight: '40px' }}
-              />
-              <button 
-                className="btn btn-primary" 
-                style={{ flex: '0 0 auto', width: 'auto', minHeight: '40px', padding: '0 16px' }}
-                onClick={() => {
-                  if (customGroceryInput.trim()) {
-                    setCustomGroceries(prev => [...prev, customGroceryInput.trim()]);
-                    setCustomGroceryInput('');
-                  }
-                }}
-              >
-                <Plus size={18} /> Add
-              </button>
-            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* Mode Toggle */}
+              <div style={{ display: 'flex', background: 'var(--surface)', padding: '4px', borderRadius: 'var(--radius-full)', border: '1px solid var(--border)' }}>
+                <button 
+                  className={`btn ${groceryInputMode === 'add' ? 'btn-primary' : 'btn-ghost'}`} 
+                  style={{ flex: 1, borderRadius: 'var(--radius-full)', minHeight: '32px', padding: '0', fontSize: '0.85rem' }}
+                  onClick={() => setGroceryInputMode('add')}
+                >
+                  <Plus size={14} style={{ marginRight: '4px' }} /> Add
+                </button>
+                <button 
+                  className={`btn ${groceryInputMode === 'search' ? 'btn-primary' : 'btn-ghost'}`} 
+                  style={{ flex: 1, borderRadius: 'var(--radius-full)', minHeight: '32px', padding: '0', fontSize: '0.85rem' }}
+                  onClick={() => setGroceryInputMode('search')}
+                >
+                  <Search size={14} style={{ marginRight: '4px' }} /> Search
+                </button>
+              </div>
 
-            {mergedGroceries.length === 0 ? (
-              <p style={{ textAlign: 'center', padding: '24px 0' }}>No meals planned yet. Go schedule some in the planner tab!</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', overflowY: 'auto', paddingRight: '8px', maxHeight: isDesktop ? 'calc(100vh - 220px)' : 'none' }}>
-                {mergedGroceries.map(groc => {
-                  const isChecked = shoppingChecked[groc.name];
-                  const isCustom = groc.sources.includes('Custom Addition');
-                  return (
-                    <div 
-                      key={groc.name} 
-                      onClick={() => toggleGroceryCheck(groc)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '12px',
-                        padding: '12px 14px',
-                        background: isChecked ? '#f5f5f4' : '#ffffff',
-                        border: '1px solid var(--border)',
-                        borderRadius: 'var(--radius-md)',
-                        textDecoration: isChecked ? 'line-through' : 'none',
-                        color: isChecked ? 'var(--text-muted)' : 'var(--text-main)',
-                        transition: 'all 0.15s ease'
-                      }}
+              {/* Input Area */}
+              <div style={{ display: 'flex', gap: '8px', position: 'relative' }}>
+                {groceryInputMode === 'search' && (
+                  <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '12px' }} />
+                )}
+                <input 
+                  type="text" 
+                  className="input-text" 
+                  placeholder={groceryInputMode === 'add' ? "Add custom item..." : "Search groceries..."}
+                  value={groceryInputMode === 'add' ? customGroceryInput : grocerySearchQuery}
+                  onChange={(e) => groceryInputMode === 'add' ? setCustomGroceryInput(e.target.value) : setGrocerySearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (groceryInputMode === 'add' && e.key === 'Enter' && customGroceryInput.trim()) {
+                      setCustomGroceries(prev => [...prev, customGroceryInput.trim()]);
+                      setCustomGroceryInput('');
+                    }
+                  }}
+                  style={{ padding: '8px 12px', paddingLeft: groceryInputMode === 'search' ? '36px' : '12px', minHeight: '40px', flex: 1 }}
+                />
+                {groceryInputMode === 'add' ? (
+                  <button 
+                    className="btn btn-primary" 
+                    style={{ flex: '0 0 auto', width: 'auto', minHeight: '40px', padding: '0 16px' }}
+                    onClick={() => {
+                      if (customGroceryInput.trim()) {
+                        setCustomGroceries(prev => [...prev, customGroceryInput.trim()]);
+                        setCustomGroceryInput('');
+                      }
+                    }}
+                  >
+                    Add
+                  </button>
+                ) : (
+                  grocerySearchQuery && (
+                    <button 
+                      className="btn btn-outline" 
+                      style={{ flex: '0 0 auto', width: 'auto', minHeight: '40px', padding: '0 12px' }}
+                      onClick={() => setGrocerySearchQuery('')}
                     >
-                      {isChecked ? <CheckSquare size={20} color="var(--primary)" /> : <Square size={20} color="var(--text-muted)" />}
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{groc.name}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>For: {cleanText(groc.sources)}</div>
-                      </div>
-                      {isCustom && (
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setCustomGroceries(prev => prev.filter(item => item.trim().toLowerCase() !== groc.name.trim().toLowerCase()));
-                          }}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            width: '28px',
-                            height: '28px',
-                            borderRadius: '50%',
-                            color: 'var(--danger)',
-                            background: 'rgba(239, 68, 68, 0.1)',
-                          }}
-                        >
-                          <X size={14} />
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+                      Clear
+                    </button>
+                  )
+                )}
               </div>
-            )}
+            </div>
+
+            {(() => {
+              const filteredGroceries = mergedGroceries.filter(groc => 
+                grocerySearchQuery === '' || groc.name.toLowerCase().includes(grocerySearchQuery.toLowerCase())
+              );
+              
+              if (filteredGroceries.length === 0) {
+                return <p style={{ textAlign: 'center', padding: '24px 0' }}>{grocerySearchQuery ? 'No matching groceries found.' : 'No meals planned yet. Go schedule some in the planner tab!'}</p>;
+              }
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', overflowY: 'auto', paddingRight: '8px', maxHeight: isDesktop ? 'calc(100vh - 280px)' : 'none' }}>
+                  {filteredGroceries.map(groc => {
+                    const isChecked = shoppingChecked[groc.name];
+                    const isCustom = groc.sources.includes('Custom Addition');
+                    return (
+                      <div 
+                        key={groc.name} 
+                        onClick={() => toggleGroceryCheck(groc)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '12px',
+                          padding: '12px 14px',
+                          background: isChecked ? '#f5f5f4' : '#ffffff',
+                          border: '1px solid var(--border)',
+                          borderRadius: 'var(--radius-md)',
+                          textDecoration: isChecked ? 'line-through' : 'none',
+                          color: isChecked ? 'var(--text-muted)' : 'var(--text-main)',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        {isChecked ? <CheckSquare size={20} color="var(--primary)" /> : <Square size={20} color="var(--text-muted)" />}
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{groc.name}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>For: {cleanText(groc.sources)}</div>
+                        </div>
+                        {isCustom && (
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCustomGroceries(prev => prev.filter(item => item.trim().toLowerCase() !== groc.name.trim().toLowerCase()));
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              width: '28px',
+                              height: '28px',
+                              borderRadius: '50%',
+                              color: 'var(--danger)',
+                              background: 'rgba(239, 68, 68, 0.1)',
+                            }}
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
